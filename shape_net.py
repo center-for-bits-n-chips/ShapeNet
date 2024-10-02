@@ -11,6 +11,9 @@ import torch
 import torch.nn as nn
 from torch.special import bessel_j0, bessel_j1
 from scipy.special import jn_zeros, jv
+import warnings
+
+#warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 # Define the neural network model
 class ShapeNet(nn.Module):
@@ -33,10 +36,10 @@ class ShapeNet(nn.Module):
         return out
 
 # Path to the saved .pth file
-model_path = 'shape_net_model.pth'
+model_path = 'shape_net_model_3_basis.pth'
 
 # Load the state_dict
-state_dict = torch.load(model_path, map_location=torch.device('cpu'))  # Use 'cuda' if using GPU
+state_dict = torch.load(model_path, map_location=torch.device('cpu'), weights_only=True)  # Use 'cuda' if using GPU
 
 n_basis = 3
 n_samples = 7
@@ -82,10 +85,6 @@ scatter_ground = gl.GLScatterPlotItem(pos=pos, size=0.01, color=(1, 0, 0, 1), px
 scatter_rim = gl.GLScatterPlotItem(pos=pos, size=0.01, color=(0, 1, 0, 1), pxMode=False)
 scatter_mesh = gl.GLScatterPlotItem(pos=pos, size=0.01, color=(1, 1, 1, 1), pxMode=False)
 
-view.addItem(scatter_ground)
-view.addItem(scatter_rim)
-view.addItem(scatter_mesh)
-
 # Function to generate circle points in 3D
 def generate_circle(center, normal, radius, num_points):
     # Create orthogonal vectors u and v in the plane
@@ -128,7 +127,51 @@ def create_faces(X, Y):
             # Second triangle of the square
             faces.append([idx1, idx2, idx3])
 
-    return np.array(faces)
+    return np.array(faces, dtype=int)
+
+#view.addItem(scatter_ground)
+view.addItem(scatter_rim)
+view.addItem(scatter_mesh)
+
+init_vertices = np.array([
+        [0, 0, 0],
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1]
+    ], dtype=float)
+    
+init_faces = np.array([
+    [0, 1, 2],
+    [0, 1, 3],
+    [0, 2, 3],
+    [1, 2, 3]
+], dtype=int)
+    
+# Create MeshData
+meshdata = pg.opengl.MeshData(vertexes=init_vertices, faces=init_faces)
+
+# Create the mesh item
+mesh = GLMeshItem(
+    meshdata = meshdata,
+    smooth=False,
+    color=(0.5, 0.5, 1, 1),  # RGBA
+    shader='shaded',
+    drawEdges=True,
+)
+
+# Add the mesh to the view
+view.addItem(mesh)
+
+circle_pts = np.zeros(3)
+
+# Create a GLLinePlotItem for the circle
+circle = gl.GLLinePlotItem(
+    pos=circle_pts,
+    color=(1, 0, 0, 1),  # Red color
+    width=2,
+    antialias=True
+)
+view.addItem(circle)
 
 # Create Bessel Function Zeros Table
 alphas = []
@@ -170,15 +213,12 @@ def update():
     # Generate circle points
     num_points = 100
     circle_pts = generate_circle(center, normal, radius, num_points)
-
-    # Create a GLLinePlotItem for the circle
-    circle = gl.GLLinePlotItem(
-        pos=circle_pts,
-        color=(1, 0, 0, 1),  # Red color
-        width=2,
-        antialias=True
-    )
-    view.addItem(circle)
+    
+    # Shift points over so center of rim is at (0,0,0)
+    circle_pts = circle_pts - center
+    mesh_marker_pos = mesh_marker_pos - center
+    ground_marker_pos = ground_marker_pos - center
+    rim_marker_pos = rim_marker_pos - center
 
     # Once all markers are updated, process the input
     if all(marker_positions.values()):
@@ -191,58 +231,48 @@ def update():
     shape_net_input = normalize_input(input_array, radius, center)
     predicted_coefficients = process_input(shape_net_input)
 
-    r_full = torch.linspace(0, 1, 20)
+    # compute reconstructed shape from NN output            
+    r_full = torch.linspace(0, 1.0, 20)
     theta_full = torch.linspace(0, 2 * np.pi, 20)
     Theta, R = torch.meshgrid(theta_full, r_full, indexing='ij')
 
+
+
     full_basis_functions = generate_basis_functions_for_surface(R, Theta, n_basis).detach().numpy()
-    Z = np.dot(full_basis_functions, predicted_coefficients)
+    Z_np = np.dot(full_basis_functions, predicted_coefficients)
 
     # redimensionalize
     gap = 0.035
     R = radius * R
-    Z = Z
+    Z_np = Z_np*gap
 
     X = R*torch.cos(Theta)
     Y = R*torch.sin(Theta)
-    X = X.detach().numpy()
-    Y = Y.detach().numpy()
+    X_np = X.detach().numpy()
+    Y_np = Y.detach().numpy()
 
-    # shift back to center
-    x_offset = center[0]
-    y_offset = center[1]
-    z_offset = center[2]
-
-    X = X + x_offset
-    Y = Y + y_offset
-    Z = Z + z_offset
+    # increase deformation scaling
+    Z_scaling = radius / gap
+    Z_np = Z_np * Z_scaling
+    mesh_marker_pos[:,2] *= Z_scaling
 
     # Example: Color based on Z-value
-    colors = np.zeros((X.size, 4), dtype=float)
-    colors[:, 0] = (Z.flatten() - Z.min()) / (Z.max() - Z.min())  # Red channel
+    colors = np.zeros((X_np.size, 4), dtype=float)
+    colors[:, 0] = (Z_np.flatten() - Z_np.min()) / (Z_np.max() - Z_np.min())  # Red channel
     colors[:, 1] = 0.5  # Green channel
-    colors[:, 2] = 1 - (Z.flatten() - Z.min()) / (Z.max() - Z.min())  # Blue channel
-    colors[:, 3] = 1.0  # Alpha channel
+    colors[:, 2] = 1 - (Z_np.flatten() - Z_np.min()) / (Z_np.max() - Z_np.min())  # Blue channel
+    colors[:, 3] = 0.2  # Alpha channel
 
     # Flatten the meshgrid arrays to create a list of vertices
-    vertices = np.column_stack((X.flatten(), Y.flatten(), Z.flatten()))
+    vertices = np.column_stack((X_np.flatten(), Y_np.flatten(), Z_np.flatten()))
     # Create faces
-    faces = create_faces(X, Y)
+    faces = create_faces(X_np, Y_np)
 
-    
-    # Create the mesh item
-    mesh = GLMeshItem(
-        vertexes=vertices,
-        faces=faces,
-        faceColors=colors,  # Optional: use colors
-        smooth=True,
-        drawEdges=False,
-        computeNormals=True
-    )
+    meshdata = gl.MeshData(vertexes = vertices, faces = faces)
+    meshdata.setVertexColors(colors)
+    mesh.setMeshData(meshdata = meshdata)
 
-    # Add the mesh to the view
-    view.addItem(mesh)
-
+    circle.setData(pos=circle_pts)
     scatter_ground.setData(pos=ground_marker_pos)
     scatter_rim.setData(pos=rim_marker_pos)
     scatter_mesh.setData(pos=mesh_marker_pos)
@@ -318,8 +348,8 @@ timer.start(5)  # Update interval in milliseconds
 
 # List of marker IDs for the markers you're tracking
 # NOTE that the marker IDs appear to change between optitrack power cycles
-desired_marker_ids = [2874, 3703, 3790, 3901, 4877, 4879, 4880, 4881, 4882, 4883, 4884, 7659, 7672]
-mesh_marker_ids = [3703, 3790, 3901, 4880, 4882,  4884, 7672]
+desired_marker_ids = [2874, 3790, 4877, 4879, 4880, 4881, 4882, 4883, 4884, 7659, 7672, 7677, 7678]
+mesh_marker_ids = [3790, 4880, 4882,  4884, 7672, 7677, 7678]
 rim_marker_ids = [2874, 7659, 4883]
 ground_marker_ids = [4881, 4877, 4879] # 4879 is origin (0,0,0)
 
@@ -420,6 +450,7 @@ def main():
     optionsDict = my_parse_args(sys.argv, optionsDict)
 
     streaming_client = NatNetClient()
+    streaming_client.set_nat_net_version(4,1)
     streaming_client.set_client_address(optionsDict["clientAddress"])
     streaming_client.set_server_address(optionsDict["serverAddress"])
     streaming_client.set_use_multicast(optionsDict["use_multicast"])
@@ -438,14 +469,15 @@ def main():
         finally:
             print("exiting")
 
-    if streaming_client.connected() is False:
-        print("ERROR: Could not connect properly.  Check that Motive streaming is on.")
-        try:
-            sys.exit(2)
-        except SystemExit:
-            print("...")
-        finally:
-            print("exiting")
+    # streaming_client appears to connect anyways, but the error below still throws
+    # if streaming_client.connected() is False:
+    #     print("ERROR: Could not connect properly.  Check that Motive streaming is on.")
+    #     try:
+    #         sys.exit(2)
+    #     except SystemExit:
+    #         print("...")
+    #     finally:
+    #         print("exiting")
 
     pg.exec()
 

@@ -91,7 +91,7 @@ class NatNetClient:
         self.__nat_net_stream_version_server = [0,0,0,0]
 
         # NatNet stream version. This will be updated to the actual version the server is using during runtime.
-        self.__nat_net_requested_version = [0,0,0,0]
+        self.__nat_net_requested_version = [4,1,0,0]
 
         # server stream version. This will be updated to the actual version the server is using during initialization.
         self.__server_version = [0,0,0,0]
