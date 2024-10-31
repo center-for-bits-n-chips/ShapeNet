@@ -1,9 +1,8 @@
 import sys
-import time
 import numpy as np
 from NatNetClient import NatNetClient
-from PyQt5 import QtWidgets
-from pyqtgraph.Qt import QtCore
+from PyQt5.QtWidgets import QApplication, QMainWindow
+from PyQt5.QtCore import QTimer
 import pyqtgraph as pg
 import pyqtgraph.opengl as gl
 from pyqtgraph.opengl import GLMeshItem
@@ -11,9 +10,13 @@ import torch
 import torch.nn as nn
 from torch.special import bessel_j0, bessel_j1
 from scipy.special import jn_zeros, jv
-import warnings
 
 #warnings.filterwarnings("ignore", category=RuntimeWarning)
+
+np.set_printoptions(linewidth=np.inf)
+
+refresh_rate_ms = 5
+num_mesh_markers = 7
 
 # Define the neural network model
 class ShapeNet(nn.Module):
@@ -35,13 +38,200 @@ class ShapeNet(nn.Module):
         out = self.fc3(out)
         return out
 
+# JOHNDEBUG: THIS IS A BAD HACK RIGHT NOW
+# USING BOTH A GLViewWidget and PlotWidget in the same class
+# should separate into two classes and do the neural network processing separately
+class RealTimeMeshShape(QMainWindow):
+    def __init__(self, title="Real-Time Meshurements"):
+        super().__init__()
+        self.setWindowTitle(title)
+
+        # Plot widget for the bar graph
+        self.plot_widget = pg.PlotWidget()
+        self.setCentralWidget(self.plot_widget)
+        
+        init_data = range(num_mesh_markers)
+        # Initialize the bar graph
+        self.data = init_data
+        self.bar_graph = pg.BarGraphItem(x=np.arange(len(init_data)), height=init_data, width=0.6, brush='r')
+        self.plot_widget.addItem(self.bar_graph)
+
+        # Set up the OpenGL view widget
+        self.view = gl.GLViewWidget()
+        self.view.show()
+        self.view.setWindowTitle('Real-time 3D Scatter Plot')
+        self.view.setCameraPosition(distance=1)
+        self.view.setGeometry(0, 110, 800, 600)
+
+        # Add grid for reference
+        self.grid = gl.GLGridItem()
+        self.grid.scale(2, 2, 1)
+        self.grid.setDepthValue(10)  # Ensure the grid is rendered below
+        self.view.addItem(self.grid)
+
+        # Initialize the scatter plot with dummy data
+        pos = np.zeros((num_mesh_markers, 3))  # Starting positions
+        self.scatter_ground = gl.GLScatterPlotItem(pos=pos, size=0.01, color=(1, 0, 0, 1), pxMode=False)
+        self.scatter_rim = gl.GLScatterPlotItem(pos=pos, size=0.01, color=(0, 1, 0, 1), pxMode=False)
+        self.scatter_mesh = gl.GLScatterPlotItem(pos=pos, size=0.01, color=(1, 1, 1, 1), pxMode=False)
+
+        # Add axes for reference
+        self.axes = gl.GLAxisItem()
+        self.axes.setSize(x=10, y=10, z=10)
+        self.view.addItem(self.axes)
+
+        init_vertices = np.array([
+                [0, 0, 0],
+                [1, 0, 0],
+                [0, 1, 0],
+                [0, 0, 1]
+            ], dtype=float)
+            
+        init_faces = np.array([
+            [0, 1, 2],
+            [0, 1, 3],
+            [0, 2, 3],
+            [1, 2, 3]
+        ], dtype=int)
+            
+        # Create MeshData
+        meshdata = pg.opengl.MeshData(vertexes=init_vertices, faces=init_faces)
+
+        # Create the mesh item
+        self.mesh = GLMeshItem(
+            meshdata = meshdata,
+            smooth=False,
+            color=(0.5, 0.5, 1, 1),  # RGBA
+            shader='shaded',
+            drawEdges=True,
+        )
+
+        # Add the mesh to the view
+        self.view.addItem(self.mesh)
+
+        circle_pts = np.zeros(3)
+
+        # Create a GLLinePlotItem for the circle
+        self.circle = gl.GLLinePlotItem(
+            pos=circle_pts,
+            color=(1, 0, 0, 1),  # Red color
+            width=2,
+            antialias=True
+        )
+        self.view.addItem(self.circle)
+
+        #self.view.addItem(self.scatter_ground)
+        self.view.addItem(self.scatter_rim)
+        self.view.addItem(self.scatter_mesh)
+
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update)
+        self.timer.start(refresh_rate_ms)  # Update interval in milliseconds
+
+    def update(self):
+        # Once all markers are updated, process the input
+        if all(mesh_marker_positions.values()):
+            # Update the scatter plot data
+            ground_marker_pos = list(ground_marker_positions.values())
+            rim_marker_pos = list(rim_marker_positions.values())
+            mesh_marker_pos = list(mesh_marker_positions.values())
+
+            # draw a circle around the rim
+            p1, p2, p3 = rim_marker_pos
+
+            center, radius, normal = compute_circumradius(p1,p2,p3)
+            # TODO: change to be measured from markers
+            gap = 0.035 # measured from physical mesh
+            
+            # Target vector is the z-axis
+            z_axis = np.array([0, 0, -1])
+            
+            # Compute rotation matrix
+            rotation_mat = rotation_matrix_from_vectors(normal, z_axis)
+
+            # Generate circle points
+            num_points = 100
+            circle_pts = generate_circle(center, np.array([0,0,1]), radius, num_points)
+            
+            # Shift points over so center of rim is at (0,0,0)
+            circle_pts = circle_pts - center
+            mesh_marker_pos = mesh_marker_pos - center
+            ground_marker_pos = ground_marker_pos - center
+            rim_marker_pos = rim_marker_pos - center
+
+            # Rotate all points so they are aligned with the z-axis rim
+            rim_marker_pos = rotate_points(rim_marker_pos, rotation_mat)
+            mesh_marker_pos = rotate_points(mesh_marker_pos, rotation_mat)
+
+            # rim offset
+            z_offset = -0.0195
+            mesh_marker_pos[:,2] -= z_offset
+
+            input_vector = []
+            for marker in mesh_marker_pos:
+                input_vector.extend(marker)
+            input_array = np.array(input_vector)
+
+            # normalize the input
+            shape_net_input = normalize_input(input_array, radius)
+            predicted_coefficients = process_input(shape_net_input)
+            # Print each number with 2 decimal places
+            #print(" ".join(f"{num:.2f}" for num in shape_net_input[2::3]))
+
+            # compute reconstructed shape from NN output            
+            r_full = torch.linspace(0, 1.0, 50)
+            theta_full = torch.linspace(0, 2*np.pi, 50)
+            Theta, R = torch.meshgrid(theta_full, r_full, indexing='ij')
+
+            full_basis_functions = generate_basis_functions_for_surface(R, Theta, n_basis).detach().numpy()
+            Z_np = np.dot(full_basis_functions, predicted_coefficients)
+
+            # redimensionalize
+            R = radius * R
+            Z_np = Z_np*gap
+
+            X = R*torch.cos(Theta)
+            Y = R*torch.sin(Theta)
+            X_np = X.detach().numpy()
+            Y_np = Y.detach().numpy()
+
+            # increase deformation scaling
+            Z_scaling = 0.5 / gap # scaling for 0 to 1 gap
+            #Z_scaling = 1.0
+            Z_np *= Z_scaling
+            mesh_marker_pos[:,2] *= Z_scaling
+            
+            # Example: Color based on Z-value
+            colors = np.zeros((X_np.size, 4), dtype=float)
+            colors[:, 0] = (Z_np.flatten() - Z_np.min()) / (Z_np.max() - Z_np.min())  # Red channel
+            colors[:, 1] = 0.5  # Green channel
+            colors[:, 2] = 1 - (Z_np.flatten() - Z_np.min()) / (Z_np.max() - Z_np.min())  # Blue channel
+            colors[:, 3] = 1.0  # Alpha channel
+
+            # Flatten the meshgrid arrays to create a list of vertices
+            vertices = np.column_stack((X_np.flatten(), Y_np.flatten(), Z_np.flatten()))
+            # Create faces
+            faces = create_faces(X_np, Y_np)
+
+            meshdata = gl.MeshData(vertexes = vertices, faces = faces)
+            meshdata.setVertexColors(colors)
+            self.mesh.setMeshData(meshdata = meshdata)
+
+            self.circle.setData(pos=circle_pts)
+            self.scatter_ground.setData(pos=ground_marker_pos)
+            self.scatter_rim.setData(pos=rim_marker_pos)
+            self.scatter_mesh.setData(pos=mesh_marker_pos)
+
+            self.data = shape_net_input[2::3] # plot just the z-displacement
+            self.bar_graph.setOpts(height=self.data)
+
 # Path to the saved .pth file
-model_path = 'shape_net_model_3_basis.pth'
+model_path = 'shape_net_model_1_basis.pth'
 
 # Load the state_dict
 state_dict = torch.load(model_path, map_location=torch.device('cpu'), weights_only=True)  # Use 'cuda' if using GPU
 
-n_basis = 3
+n_basis = 1
 n_samples = 7
 
 # Define Model & Training Parameters
@@ -62,28 +252,17 @@ model.to(device)
 # Set model to evaluation mode
 model.eval()
 
-# Create the application instance
-app = QtWidgets.QApplication([])
+# NOTE that the marker IDs appear to change between optitrack power cycles
+# however for the rigid bodies they are consistently 1,2,3
+mesh_marker_positions = {}
+ground_marker_positions = {marker_id: (0.0, 0.0, 0.0) for marker_id in [1, 2, 3]}
+rim_marker_positions = {marker_id: (0.0, 0.0, 0.0) for marker_id in [1, 2, 3]}
 
-# Set up the OpenGL view widget
-view = gl.GLViewWidget()
-view.show()
-view.setWindowTitle('Real-time 3D Scatter Plot')
-view.setCameraPosition(distance=1)
-view.setGeometry(0, 110, 800, 600)
-
-# Add grid for reference
-grid = gl.GLGridItem()
-grid.scale(2, 2, 1)
-grid.setDepthValue(10)  # Ensure the grid is rendered below
-view.addItem(grid)
-
-# Initialize the scatter plot with dummy data
-num_points = 13  # Number of points to plot
-pos = np.zeros((num_points, 3))  # Starting positions
-scatter_ground = gl.GLScatterPlotItem(pos=pos, size=0.01, color=(1, 0, 0, 1), pxMode=False)
-scatter_rim = gl.GLScatterPlotItem(pos=pos, size=0.01, color=(0, 1, 0, 1), pxMode=False)
-scatter_mesh = gl.GLScatterPlotItem(pos=pos, size=0.01, color=(1, 1, 1, 1), pxMode=False)
+def normalize(v):
+    norm = np.linalg.norm(v)
+    if norm > 0:
+        return v / norm
+    return v  # Return the original vector if it's already a zero or near-zero vector
 
 # Function to generate circle points in 3D
 def generate_circle(center, normal, radius, num_points):
@@ -100,11 +279,6 @@ def generate_circle(center, normal, radius, num_points):
     theta = np.linspace(0, 2 * np.pi, num_points)
     circle_points = center[:, np.newaxis] + radius * (np.outer(u, np.cos(theta)) + np.outer(v, np.sin(theta)))
     return circle_points.T  # Shape: (num_points, 3)
-
-# Add axes for reference
-axes = gl.GLAxisItem()
-axes.setSize(x=10, y=10, z=10)
-view.addItem(axes)
 
 def create_faces(X, Y):
     """
@@ -129,50 +303,6 @@ def create_faces(X, Y):
 
     return np.array(faces, dtype=int)
 
-#view.addItem(scatter_ground)
-view.addItem(scatter_rim)
-view.addItem(scatter_mesh)
-
-init_vertices = np.array([
-        [0, 0, 0],
-        [1, 0, 0],
-        [0, 1, 0],
-        [0, 0, 1]
-    ], dtype=float)
-    
-init_faces = np.array([
-    [0, 1, 2],
-    [0, 1, 3],
-    [0, 2, 3],
-    [1, 2, 3]
-], dtype=int)
-    
-# Create MeshData
-meshdata = pg.opengl.MeshData(vertexes=init_vertices, faces=init_faces)
-
-# Create the mesh item
-mesh = GLMeshItem(
-    meshdata = meshdata,
-    smooth=False,
-    color=(0.5, 0.5, 1, 1),  # RGBA
-    shader='shaded',
-    drawEdges=True,
-)
-
-# Add the mesh to the view
-view.addItem(mesh)
-
-circle_pts = np.zeros(3)
-
-# Create a GLLinePlotItem for the circle
-circle = gl.GLLinePlotItem(
-    pos=circle_pts,
-    color=(1, 0, 0, 1),  # Red color
-    width=2,
-    antialias=True
-)
-view.addItem(circle)
-
 # Create Bessel Function Zeros Table
 alphas = []
 for m in range(2):
@@ -192,90 +322,30 @@ def generate_basis_functions_for_surface(r, theta, N):
         basis_functions.append(phi_n_cos)
     return torch.stack(basis_functions, dim=2)  # Shape: (n_samples, n_basis)
 
-# Update function
-def update():
-    # Update the scatter plot data
-    ground_marker_pos = []
-    rim_marker_pos = []
-    mesh_marker_pos = []
-    for marker_id in mesh_marker_ids:
-        mesh_marker_pos.append(list(marker_positions[marker_id]))
-    for marker_id in rim_marker_ids:
-        rim_marker_pos.append(list(marker_positions[marker_id]))
-    for marker_id in ground_marker_ids:
-        ground_marker_pos.append(list(marker_positions[marker_id]))
-
-    # draw a circle around the rim
-    p1, p2, p3 = rim_marker_pos
-
-    center, radius, normal = compute_circumradius(p1,p2,p3)
-
-    # Generate circle points
-    num_points = 100
-    circle_pts = generate_circle(center, normal, radius, num_points)
+def rotation_matrix_from_vectors(a, b):
+    """ Returns the rotation matrix that aligns a to b
+    :param a: A 3d "source" vector
+    :param b: A 3d "destination" vector
+    :return mat: A transformation matrix (3x3) which rotates vec1 to vec2
+    """
+    v = np.cross(a, b)
+    c = np.dot(a, b)
+    s = np.linalg.norm(v)
+    I = np.eye(3)
     
-    # Shift points over so center of rim is at (0,0,0)
-    circle_pts = circle_pts - center
-    mesh_marker_pos = mesh_marker_pos - center
-    ground_marker_pos = ground_marker_pos - center
-    rim_marker_pos = rim_marker_pos - center
+    if s == 0:  # vec1 and vec2 are already aligned
+        return I
 
-    # Once all markers are updated, process the input
-    if all(marker_positions.values()):
-        input_vector = []
-        for marker_id in mesh_marker_ids:
-            input_vector.extend(marker_positions[marker_id])
-        input_array = np.array(input_vector)
+    vx = np.array([[0, -v[2], v[1]], 
+                   [v[2], 0, -v[0]], 
+                   [-v[1], v[0], 0]])
+    
+    rotation_matrix = I + vx + np.dot(vx, vx) * ((1 - c) / (s ** 2))
+    return rotation_matrix
 
-    # normalize the input
-    shape_net_input = normalize_input(input_array, radius, center)
-    predicted_coefficients = process_input(shape_net_input)
-
-    # compute reconstructed shape from NN output            
-    r_full = torch.linspace(0, 1.0, 20)
-    theta_full = torch.linspace(0, 2 * np.pi, 20)
-    Theta, R = torch.meshgrid(theta_full, r_full, indexing='ij')
-
-
-
-    full_basis_functions = generate_basis_functions_for_surface(R, Theta, n_basis).detach().numpy()
-    Z_np = np.dot(full_basis_functions, predicted_coefficients)
-
-    # redimensionalize
-    gap = 0.035
-    R = radius * R
-    Z_np = Z_np*gap
-
-    X = R*torch.cos(Theta)
-    Y = R*torch.sin(Theta)
-    X_np = X.detach().numpy()
-    Y_np = Y.detach().numpy()
-
-    # increase deformation scaling
-    Z_scaling = radius / gap
-    Z_np = Z_np * Z_scaling
-    mesh_marker_pos[:,2] *= Z_scaling
-
-    # Example: Color based on Z-value
-    colors = np.zeros((X_np.size, 4), dtype=float)
-    colors[:, 0] = (Z_np.flatten() - Z_np.min()) / (Z_np.max() - Z_np.min())  # Red channel
-    colors[:, 1] = 0.5  # Green channel
-    colors[:, 2] = 1 - (Z_np.flatten() - Z_np.min()) / (Z_np.max() - Z_np.min())  # Blue channel
-    colors[:, 3] = 0.2  # Alpha channel
-
-    # Flatten the meshgrid arrays to create a list of vertices
-    vertices = np.column_stack((X_np.flatten(), Y_np.flatten(), Z_np.flatten()))
-    # Create faces
-    faces = create_faces(X_np, Y_np)
-
-    meshdata = gl.MeshData(vertexes = vertices, faces = faces)
-    meshdata.setVertexColors(colors)
-    mesh.setMeshData(meshdata = meshdata)
-
-    circle.setData(pos=circle_pts)
-    scatter_ground.setData(pos=ground_marker_pos)
-    scatter_rim.setData(pos=rim_marker_pos)
-    scatter_mesh.setData(pos=mesh_marker_pos)
+# Apply rotation to all points
+def rotate_points(points, rotation_mat):
+    return points @ rotation_mat.T
 
 def compute_circumradius(p1, p2, p3):
     """
@@ -341,27 +411,20 @@ def compute_circumradius(p1, p2, p3):
 
     return center, radius, normal
 
-# Set up a timer for periodic updates
-timer = QtCore.QTimer()
-timer.timeout.connect(update)
-timer.start(5)  # Update interval in milliseconds
-
-# List of marker IDs for the markers you're tracking
-# NOTE that the marker IDs appear to change between optitrack power cycles
-desired_marker_ids = [2874, 3790, 4877, 4879, 4880, 4881, 4882, 4883, 4884, 7659, 7672, 7677, 7678]
-mesh_marker_ids = [3790, 4880, 4882,  4884, 7672, 7677, 7678]
-rim_marker_ids = [2874, 7659, 4883]
-ground_marker_ids = [4881, 4877, 4879] # 4879 is origin (0,0,0)
-
-# Dictionary to store marker positions
-marker_positions = {marker_id: (0.0, 0.0, 0.0) for marker_id in desired_marker_ids}
-
 # Callback function to handle labeled marker data
-def receive_labeled_marker(marker_id, position):
-    if marker_id in desired_marker_ids:
+def receive_labeled_marker(marker_id, model_id, position):
+    if model_id == 0: # mesh markers
         x, y, z = position # rescramble position
         reoriented_position = [y, z, x]
-        marker_positions[marker_id] = reoriented_position
+        mesh_marker_positions[marker_id] = reoriented_position
+    if model_id == 1: # ground markers
+        x, y, z = position # rescramble position
+        reoriented_position = [y, z, x]
+        ground_marker_positions[marker_id] = reoriented_position
+    if model_id == 2: # rim markers
+        x, y, z = position # rescramble position
+        reoriented_position = [y, z, x]
+        rim_marker_positions[marker_id] = reoriented_position
 
 # Placeholder function for neural network processing
 def process_input(input):
@@ -377,7 +440,7 @@ def process_input(input):
     
     return predicted_coefficients
 
-def normalize_input(input, radius, center):
+def normalize_input(input, radius):
     # (x,y,z)
     # note that x is the mesh displacement
     # redefine x,y,z to match neural network input
@@ -386,14 +449,6 @@ def normalize_input(input, radius, center):
     x = input[0::3]
     y = input[1::3]
     z = input[2::3]
-    
-    x_offset = center[0]
-    y_offset = center[1]
-    z_offset = center[2]
-
-    x = x - x_offset
-    y = y - y_offset
-    z = z - z_offset
 
     r, theta = cartesian_to_polar_numpy(x, y)
     r_normalized = r / radius
@@ -440,7 +495,6 @@ def my_parse_args(arg_list, args_dict):
 
 # Main function to run the client
 def main():
-
     optionsDict = {}
     optionsDict["clientAddress"] = "127.0.0.1"
     optionsDict["serverAddress"] = "127.0.0.1"
@@ -479,11 +533,12 @@ def main():
     #     finally:
     #         print("exiting")
 
-    pg.exec()
-
     try:
-        while True:
-            time.sleep(1)
+        # Create the application instance
+        app = QApplication(sys.argv)
+        window1 = RealTimeMeshShape()
+        window1.show()
+        pg.exec()
     except KeyboardInterrupt:
         streaming_client.shutdown()
         sys.exit(0)
