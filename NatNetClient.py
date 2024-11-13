@@ -657,9 +657,9 @@ class NatNetClient:
                     residual = residual * 1000.0
                     trace_mf( "    err  : [%3.2f]"% residual )
 
-                        # Send information to any listener.
+                # Send information to any listener.
                 if self.labeled_marker_listener is not None:
-                    self.labeled_marker_listener(marker_id, pos)
+                    self.labeled_marker_listener(marker_id, model_id, pos)
 
                 labeled_marker = MoCapData.LabeledMarker(tmp_id,pos,size,param, residual)
                 labeled_marker_data.add_labeled_marker(labeled_marker)

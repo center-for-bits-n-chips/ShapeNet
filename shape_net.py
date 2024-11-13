@@ -523,16 +523,6 @@ def main():
         finally:
             print("exiting")
 
-    # streaming_client appears to connect anyways, but the error below still throws
-    # if streaming_client.connected() is False:
-    #     print("ERROR: Could not connect properly.  Check that Motive streaming is on.")
-    #     try:
-    #         sys.exit(2)
-    #     except SystemExit:
-    #         print("...")
-    #     finally:
-    #         print("exiting")
-
     try:
         # Create the application instance
         app = QApplication(sys.argv)
