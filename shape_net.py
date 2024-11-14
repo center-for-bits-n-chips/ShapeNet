@@ -11,12 +11,109 @@ import torch.nn as nn
 from torch.special import bessel_j0, bessel_j1
 from scipy.special import jn_zeros, jv
 
+import socket
+import struct
+import threading
+
 #warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 np.set_printoptions(linewidth=np.inf)
 
 refresh_rate_ms = 5
 num_mesh_markers = 7
+
+Z_center = 0.0
+
+def handle_client(stop_event, conn, addr):
+    global Z_center
+    print(f"Connected by {addr}")
+    conn.settimeout(1.0)  # Set timeout to prevent blocking indefinitely
+    try:
+        while not stop_event.is_set():
+            # Receive data from LabVIEW
+            try:
+                data = conn.recv(1024)
+                if data:
+                    # Process received data (assuming big-endian 4-byte float)
+                    while len(data) >= 8:
+                        num = struct.unpack('>d', data[:8])[0]
+                        #print(f"Received from LabVIEW: {num}")
+                        data = data[8:]
+                else:
+                    print(f"Client {addr} closed the connection.")
+                    break  # Connection closed by client
+            except socket.timeout:
+                pass  # No data received; proceed to sending
+            except (ConnectionResetError, ConnectionAbortedError):
+                print(f"Connection with {addr} was reset during receive.")
+                break
+            except Exception as e:
+                print(f"Error receiving data from {addr}: {e}")
+                break
+
+            # Send data to LabVIEW
+            gap = 2.5*80 # mm gap between cmd surf and mesh
+            Z_center_mm = Z_center * gap 
+            num_to_send = -Z_center_mm  # negative to be consistent with laser reading
+            data_to_send = struct.pack('>d', num_to_send)
+            try:
+                conn.sendall(data_to_send)
+                #print(f"Sent to LabVIEW: {num_to_send}")
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                print(f"Connection with {addr} was closed during send.")
+                break
+            except Exception as e:
+                print(f"Error sending data to {addr}: {e}")
+                break
+
+    finally:
+        conn.close()
+        print(f"Connection with {addr} closed.")
+
+def start_GUI(stop_event):
+    while not stop_event.is_set():
+        # Create the application instance
+        app = QApplication(sys.argv)
+        window1 = RealTimeMeshShape()
+        window1.show()
+        pg.exec()
+
+def start_server(host, port):
+    # Create a stop event
+    stop_event = threading.Event()
+    threads = []
+    
+    gui_thread = threading.Thread(target=start_GUI, args=(stop_event,))
+    gui_thread.start()
+    threads.append(gui_thread)
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((host, port))
+        s.listen()
+        s.settimeout(1.0)  # Set timeout on socket operations
+        print(f"Server listening on port {port}")
+        try:
+            while not stop_event.is_set():
+                try:
+                    conn, addr = s.accept()
+                    print(f"Accepted connection from {addr}")
+                    server_thread = threading.Thread(target=handle_client, args=(stop_event, conn, addr))
+                    server_thread.start()
+                    threads.append(server_thread)
+                    # If you want to handle only one connection, you can break here
+                    # break
+                except socket.timeout:
+                    pass  # No connection attempt; check stop_event
+        except KeyboardInterrupt:
+            print("Main thread received KeyboardInterrupt. Stopping server...")
+            stop_event.set()
+        finally:
+            print("Server is shutting down.")
+            s.close()
+            # Wait for all threads to finish
+            for t in threads:
+                t.join()
+            print("All client connections have been closed.")
 
 # Define the neural network model
 class ShapeNet(nn.Module):
@@ -129,6 +226,7 @@ class RealTimeMeshShape(QMainWindow):
         self.timer.start(refresh_rate_ms)  # Update interval in milliseconds
 
     def update(self):
+        global Z_center
         # Once all markers are updated, process the input
         if all(mesh_marker_positions.values()):
             # Update the scatter plot data
@@ -164,7 +262,7 @@ class RealTimeMeshShape(QMainWindow):
             mesh_marker_pos = rotate_points(mesh_marker_pos, rotation_mat)
 
             # rim offset
-            z_offset = -0.0195
+            z_offset = -0.0195 - 0.0038
             mesh_marker_pos[:,2] -= z_offset
 
             input_vector = []
@@ -186,6 +284,11 @@ class RealTimeMeshShape(QMainWindow):
             full_basis_functions = generate_basis_functions_for_surface(R, Theta, n_basis).detach().numpy()
             Z_np = np.dot(full_basis_functions, predicted_coefficients)
 
+            # CENTER LOCATION
+            center_basis_functions = generate_basis_functions_for_surface(torch.zeros(1, 1),torch.zeros(1, 1), n_basis).detach().numpy()
+            Z_center_np = np.dot(center_basis_functions, predicted_coefficients)
+            Z_center = Z_center_np.item()
+
             # redimensionalize
             R = radius * R
             Z_np = Z_np*gap
@@ -196,7 +299,7 @@ class RealTimeMeshShape(QMainWindow):
             Y_np = Y.detach().numpy()
 
             # increase deformation scaling
-            Z_scaling = 0.5 / gap # scaling for 0 to 1 gap
+            Z_scaling = 1.0 / gap # scaling for 0 to 1 gap
             #Z_scaling = 1.0
             Z_np *= Z_scaling
             mesh_marker_pos[:,2] *= Z_scaling
@@ -524,11 +627,9 @@ def main():
             print("exiting")
 
     try:
-        # Create the application instance
-        app = QApplication(sys.argv)
-        window1 = RealTimeMeshShape()
-        window1.show()
-        pg.exec()
+        HOST = '127.0.0.1'  # Listen on specified network interface
+        PORT = 9999         # Arbitrary non-privileged port
+        start_server(HOST, PORT)
     except KeyboardInterrupt:
         streaming_client.shutdown()
         sys.exit(0)
