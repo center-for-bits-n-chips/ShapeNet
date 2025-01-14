@@ -295,7 +295,7 @@ class RealTimeMeshShape(QMainWindow):
 
             # CENTER LOCATION FROM MOCAP
             Z_mocap_mm = 1000 * input_array[2::3] # original array is in meters
-            Z_center = Z_mocap_mm[-1]
+            Z_center = Z_mocap_mm[3] # NOTE the center marker id changes
 
             # redimensionalize
             R = radius * R
