@@ -6,6 +6,21 @@ import socket
 import struct
 import threading
 
+import csv
+import os
+
+# Define the combined CSV file path
+combined_csv_file = "combined_data.csv"
+
+# Initialize the CSV file with headers if it doesn't exist
+if not os.path.exists(combined_csv_file):
+    with open(combined_csv_file, mode="w", newline="") as file:
+        writer = csv.writer(file)
+        # Header includes voltage and marker positions
+        header = ["Voltage (num)"] + [f"Marker_{i}_X" for i in range(1, 9)] + \
+                 [f"Marker_{i}_Y" for i in range(1, 9)] + [f"Marker_{i}_Z" for i in range(1, 9)]
+        writer.writerow(header)
+
 #warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 np.set_printoptions(linewidth=np.inf)
@@ -19,26 +34,26 @@ mesh_marker_positions = {}
 ground_marker_positions = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
 rim_marker_positions = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
 
+# Update handle_client to pass voltage to the combined export function
 def handle_client(stop_event, conn, addr):
     global Z_center
     print(f"Connected by {addr}")
     conn.settimeout(1.0)  # Set timeout to prevent blocking indefinitely
     try:
         while not stop_event.is_set():
-            # Receive data from LabVIEW
             try:
                 data = conn.recv(1024)
                 if data:
-                    # Process received data (assuming big-endian 4-byte float)
                     while len(data) >= 8:
                         num = struct.unpack('>d', data[:8])[0]
-                        #print(f"Received from LabVIEW: {num}")
+                        # Save voltage for later export with marker positions
+                        save_combined_data(num, None)  # Pass voltage to combine later
                         data = data[8:]
                 else:
                     print(f"Client {addr} closed the connection.")
-                    break  # Connection closed by client
+                    break
             except socket.timeout:
-                pass  # No data received; proceed to sending
+                pass
             except (ConnectionResetError, ConnectionAbortedError):
                 print(f"Connection with {addr} was reset during receive.")
                 break
@@ -48,11 +63,10 @@ def handle_client(stop_event, conn, addr):
 
             # Send data to LabVIEW
             Z_center_mm = Z_center
-            num_to_send = -Z_center_mm  # negative to be consistent with laser reading
+            num_to_send = -Z_center_mm
             data_to_send = struct.pack('>d', num_to_send)
             try:
                 conn.sendall(data_to_send)
-                #print(f"Sent to LabVIEW: {num_to_send}")
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 print(f"Connection with {addr} was closed during send.")
                 break
@@ -283,6 +297,22 @@ def receive_labeled_marker(marker_id, model_id, position):
         # CENTER LOCATION FROM MOCAP
         Z_mocap_mm = 1000 * input_array[2::3] # original array is in meters
         Z_center = Z_mocap_mm[3] # NOTE the center marker id changes
+
+    if len(mesh_marker_positions) == num_mesh_markers:  # When all markers are updated
+            mesh_positions = [pos for marker in mesh_marker_positions.values() for pos in marker]
+            save_combined_data(None, mesh_positions)  # Pass marker positions to combine later
+
+
+# CSV Saving Function
+def save_combined_data(voltage, mesh_positions):
+    with open(combined_csv_file, mode="a", newline="") as file:
+        writer = csv.writer(file)
+        if voltage is not None:
+            # Store voltage if marker positions are not yet available
+            writer.writerow([voltage] + [""] * (8 * 3))
+        elif mesh_positions is not None:
+            # Store marker positions if voltage is not yet available
+            writer.writerow([""] + mesh_positions)
         
 def cartesian_to_polar_numpy(x, y):
     """
@@ -359,3 +389,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
