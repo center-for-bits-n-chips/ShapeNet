@@ -5,12 +5,25 @@ from NatNetClient import NatNetClient
 import socket
 import struct
 import threading
+import matplotlib.pyplot as plt
+from collections import deque
+import threading
+import time
 
 import csv
 import os
 
 # Define the combined CSV file path
 combined_csv_file = "combined_data.csv"
+
+# Define the plotting data structure
+plot_data = {
+    "Voltage": deque(maxlen=50),
+    "Mesh_Positions": {f"Marker_{i}": deque(maxlen=50) for i in range(1, 9)}
+}
+
+# Thread-safe lock for data access
+data_lock = threading.Lock()
 
 # Initialize the CSV file with headers if it doesn't exist
 if not os.path.exists(combined_csv_file):
@@ -113,6 +126,44 @@ def normalize(v):
     if norm > 0:
         return v / norm
     return v  # Return the original vector if it's already a zero or near-zero vector
+
+def update_plot():
+    plt.ion()
+    fig, ax = plt.subplots()
+    lines = {}
+    for marker in plot_data["Mesh_Positions"]:
+        lines[marker], = ax.plot([], [], label=marker)
+    
+    ax.set_xlabel("Voltage (kV)")
+    ax.set_ylabel("Mesh Positions")
+    ax.legend()
+    plt.title("Real-Time Mesh Positions vs Voltage")
+
+    while True:
+        with data_lock:
+            voltage = list(plot_data["Voltage"])
+            for marker, positions in plot_data["Mesh_Positions"].items():
+                if voltage and positions:
+                    lines[marker].set_data(voltage, positions)
+                    ax.relim()
+                    ax.autoscale_view()
+
+        plt.pause(0.1)
+
+# Modify the save_combined_data function
+def save_combined_data(voltage, mesh_positions):
+    with open(combined_csv_file, mode="a", newline="") as file:
+        writer = csv.writer(file)
+        if voltage is not None:
+            writer.writerow([voltage] + [""] * (8 * 3))
+            with data_lock:
+                plot_data["Voltage"].append(voltage / 1000)  # Convert to kilovolts
+        elif mesh_positions is not None:
+            writer.writerow([""] + mesh_positions)
+            mesh_positions_float = [float(x) for x in mesh_positions]
+            with data_lock:
+                for i, pos in enumerate(mesh_positions_float):
+                    plot_data["Mesh_Positions"][f"Marker_{i // 3 + 1}"].append(pos)
 
 # Function to generate circle points in 3D
 def generate_circle(center, normal, radius, num_points):
@@ -389,4 +440,7 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
+
+# Start the plot in a separate thread
+plot_thread = threading.Thread(target=update_plot, daemon=True)
+plot_thread.start()
