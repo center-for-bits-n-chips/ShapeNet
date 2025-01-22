@@ -4,12 +4,6 @@ from NatNetClient import NatNetClient
 
 import socket
 import struct
-import threading
-
-import time
-
-last_call_time = 0.0
-elapsed_ms = 0.0
 
 np.set_printoptions(linewidth=np.inf)
 
@@ -32,16 +26,15 @@ def handle_client(conn, addr):
             try:
                 data = conn.recv(1024) # 1024 is the number of bytes
                 if data:
-                    # Process received data (assuming big-endian 4-byte float)
                     while len(data) >= 8:
                         num = struct.unpack('>d', data[:8])[0]
                         #print(f"Received from LabVIEW: {num}")
                         data = data[8:] # clear data out
                 else:
                     print(f"Client {addr} closed the connection.")
-                    break  # Connection closed by client
+                    break
             except socket.timeout:
-                pass  # No data received; proceed to sending
+                pass
             except (ConnectionResetError, ConnectionAbortedError):
                 print(f"Connection with {addr} was reset during receive.")
                 break
@@ -55,7 +48,6 @@ def handle_client(conn, addr):
             data_to_send = struct.pack('>d', num_to_send)
             try:
                 conn.sendall(data_to_send)
-                #print(f"Sent to LabVIEW: {num_to_send}")
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 print(f"Connection with {addr} was closed during send.")
             except Exception as e:
@@ -65,30 +57,22 @@ def handle_client(conn, addr):
         print(f"Connection with {addr} closed.")
 
 def start_server(host, port):
-    # Create a stop event
-    #stop_event = threading.Event()
-    #threads = []
-    
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind((host, port))
         s.listen()
         #s.settimeout(1.0)  # Set timeout on socket operations
         print(f"Server listening on port {port}")
-        try:
-            while True:
-                try:
-                    conn, addr = s.accept()
-                    handle_client(conn, addr)
-                    print(f"Accepted connection from {addr}")
-                    #server_thread = threading.Thread(target=handle_client, args=(stop_event, conn, addr))
-                    #server_thread.start()
-                    #threads.append(server_thread)
-                except socket.timeout:
-                    pass  # No connection attempt; check stop_event
-        except KeyboardInterrupt:
-            print("Server is shutting down.")
-            s.close()
-            print("All client connections have been closed.")
+        while True:
+            try:
+                conn, addr = s.accept()
+                handle_client(conn, addr)
+                print(f"Accepted connection from {addr}")
+            except socket.timeout:
+                pass  # No connection attempt; check stop_event
+            except KeyboardInterrupt:
+                print("Server is shutting down.")
+                s.close()
+                print("All client connections have been closed.")
 
 def rotation_matrix_from_vectors(a, b):
     """ Returns the rotation matrix that aligns a to b
