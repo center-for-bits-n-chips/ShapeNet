@@ -6,7 +6,10 @@ import socket
 import struct
 import threading
 
-#warnings.filterwarnings("ignore", category=RuntimeWarning)
+import time
+
+last_call_time = 0.0
+elapsed_ms = 0.0
 
 np.set_printoptions(linewidth=np.inf)
 
@@ -19,21 +22,21 @@ mesh_marker_positions = {}
 ground_marker_positions = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
 rim_marker_positions = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
 
-def handle_client(stop_event, conn, addr):
+def handle_client(conn, addr):
     global Z_center
     print(f"Connected by {addr}")
-    conn.settimeout(1.0)  # Set timeout to prevent blocking indefinitely
+    #conn.settimeout(0.5)  # Set timeout to prevent blocking indefinitely
     try:
-        while not stop_event.is_set():
+        while True:
             # Receive data from LabVIEW
             try:
-                data = conn.recv(1024)
+                data = conn.recv(1024) # 1024 is the number of bytes
                 if data:
                     # Process received data (assuming big-endian 4-byte float)
                     while len(data) >= 8:
                         num = struct.unpack('>d', data[:8])[0]
                         #print(f"Received from LabVIEW: {num}")
-                        data = data[8:]
+                        data = data[8:] # clear data out
                 else:
                     print(f"Client {addr} closed the connection.")
                     break  # Connection closed by client
@@ -47,97 +50,45 @@ def handle_client(stop_event, conn, addr):
                 break
 
             # Send data to LabVIEW
-            Z_center_mm = Z_center
-            num_to_send = -Z_center_mm  # negative to be consistent with laser reading
+            num_to_send = -Z_center  # negative to be consistent with laser reading
+            #num_to_send = elapsed_ms
             data_to_send = struct.pack('>d', num_to_send)
             try:
                 conn.sendall(data_to_send)
                 #print(f"Sent to LabVIEW: {num_to_send}")
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 print(f"Connection with {addr} was closed during send.")
-                break
             except Exception as e:
                 print(f"Error sending data to {addr}: {e}")
-                break
-
     finally:
         conn.close()
         print(f"Connection with {addr} closed.")
 
 def start_server(host, port):
     # Create a stop event
-    stop_event = threading.Event()
-    threads = []
+    #stop_event = threading.Event()
+    #threads = []
     
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind((host, port))
         s.listen()
-        s.settimeout(1.0)  # Set timeout on socket operations
+        #s.settimeout(1.0)  # Set timeout on socket operations
         print(f"Server listening on port {port}")
         try:
             while True:
                 try:
                     conn, addr = s.accept()
+                    handle_client(conn, addr)
                     print(f"Accepted connection from {addr}")
-                    server_thread = threading.Thread(target=handle_client, args=(stop_event, conn, addr))
-                    server_thread.start()
-                    threads.append(server_thread)
+                    #server_thread = threading.Thread(target=handle_client, args=(stop_event, conn, addr))
+                    #server_thread.start()
+                    #threads.append(server_thread)
                 except socket.timeout:
                     pass  # No connection attempt; check stop_event
         except KeyboardInterrupt:
-            print("Main thread received KeyboardInterrupt. Stopping server...")
-            stop_event.set()
             print("Server is shutting down.")
             s.close()
-            # Wait for all threads to finish
-            for t in threads:
-                t.join()
             print("All client connections have been closed.")
-
-def normalize(v):
-    norm = np.linalg.norm(v)
-    if norm > 0:
-        return v / norm
-    return v  # Return the original vector if it's already a zero or near-zero vector
-
-# Function to generate circle points in 3D
-def generate_circle(center, normal, radius, num_points):
-    # Create orthogonal vectors u and v in the plane
-    if np.allclose(normal, [0.0, 0.0, 1.0]):
-        u = np.array([1.0, 0.0, 0.0])
-    else:
-        u = np.array([0.0, 0.0, 1.0])
-    u = u - u.dot(normal) * normal
-    u /= np.linalg.norm(u)
-    v = np.cross(normal, u)
-
-    # Generate circle points
-    theta = np.linspace(0, 2 * np.pi, num_points)
-    circle_points = center[:, np.newaxis] + radius * (np.outer(u, np.cos(theta)) + np.outer(v, np.sin(theta)))
-    return circle_points.T  # Shape: (num_points, 3)
-
-def create_faces(X, Y):
-    """
-    Create a list of triangle faces from meshgrid coordinates.
-    """
-    faces = []
-    rows, cols = X.shape
-
-    for i in range(rows - 1):
-        for j in range(cols - 1):
-            # Define the indices of the square's corners
-            idx0 = i * cols + j
-            idx1 = idx0 + 1
-            idx2 = idx0 + cols
-            idx3 = idx2 + 1
-
-            # First triangle of the square
-            faces.append([idx0, idx2, idx1])
-
-            # Second triangle of the square
-            faces.append([idx1, idx2, idx3])
-
-    return np.array(faces, dtype=int)
 
 def rotation_matrix_from_vectors(a, b):
     """ Returns the rotation matrix that aligns a to b
@@ -230,6 +181,18 @@ def compute_circumradius(p1, p2, p3):
 
 # Callback function to handle labeled marker data
 def receive_labeled_marker(marker_id, model_id, position):
+    # global last_call_time
+    # global elapsed_ms
+    global Z_center
+
+    # current_time = time.perf_counter()
+
+    # if last_call_time is not None:
+    #     elapsed_ms = (current_time - last_call_time) * 1000.0
+    #     #print(f"{elapsed_ms:.2f} ms since last function call")
+    
+    # last_call_time = current_time
+
     if model_id == 0: # mesh markers
         x, y, z = position # rescramble position
         reoriented_position = [y, z, x]
@@ -247,7 +210,6 @@ def receive_labeled_marker(marker_id, model_id, position):
     rim_marker_pos = list(rim_marker_positions.values())
     mesh_marker_pos = list(mesh_marker_positions.values())
 
-    global Z_center
     # Once all markers are updated, process the input
     all_rim_markers_nonzero = all(value != 0 for row in rim_marker_pos for value in row)
     all_mesh_markers_updated = len(mesh_marker_pos) == num_mesh_markers
@@ -283,26 +245,6 @@ def receive_labeled_marker(marker_id, model_id, position):
         # CENTER LOCATION FROM MOCAP
         Z_mocap_mm = 1000 * input_array[2::3] # original array is in meters
         Z_center = Z_mocap_mm[3] # NOTE the center marker id changes
-        
-def cartesian_to_polar_numpy(x, y):
-    """
-    Convert lists or NumPy arrays of Cartesian coordinates (x, y) to Polar coordinates (r, theta).
-    
-    Parameters:
-    - x (list or np.ndarray): X-coordinates.
-    - y (list or np.ndarray): Y-coordinates.
-    
-    Returns:
-    - r (np.ndarray): Radial distances.
-    - theta (np.ndarray): Angles in radians.
-    """
-    x = np.array(x, dtype=float)
-    y = np.array(y, dtype=float)
-    
-    r = np.hypot(x, y)          # Equivalent to sqrt(x**2 + y**2)
-    theta = np.arctan2(y, x) + np.pi    # Angle in radians between -pi and pi
-    
-    return r, theta
 
 def my_parse_args(arg_list, args_dict):
     # set up base values
@@ -334,7 +276,7 @@ def main():
     streaming_client.set_client_address(optionsDict["clientAddress"])
     streaming_client.set_server_address(optionsDict["serverAddress"])
     streaming_client.set_use_multicast(optionsDict["use_multicast"])
-    streaming_client.set_print_level(0) # print every 120 frames (1 Hz)
+    streaming_client.set_print_level(0) # disables prints
 
     # Set callbacks
     streaming_client.labeled_marker_listener = receive_labeled_marker
@@ -349,13 +291,13 @@ def main():
         finally:
             print("exiting")
 
-    try:
-        HOST = '127.0.0.1'  # Listen on specified network interface
-        PORT = 9999         # Arbitrary non-privileged port
-        start_server(HOST, PORT)
-    except KeyboardInterrupt:
-        streaming_client.shutdown()
-        sys.exit(0)
+    HOST = '127.0.0.1'  # Listen on specified network interface
+    PORT = 9999         # Arbitrary non-privileged port
+    start_server(HOST, PORT) # blocking
+
+    streaming_client.shutdown()
+    sys.exit(0)
+        
 
 if __name__ == "__main__":
     main()
