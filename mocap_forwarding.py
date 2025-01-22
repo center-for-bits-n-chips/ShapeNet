@@ -24,7 +24,7 @@ def handle_client(conn, addr):
     print(f"Connected by {addr}")
 
     # Prevent blocking forever when calling conn.recv()
-    conn.settimeout(0.5)
+    conn.settimeout(0.1)
 
     try:
         while True:
@@ -71,7 +71,7 @@ def start_server(host, port):
         s.bind((host, port))
         s.listen()
         # Also give the server socket a timeout so we can detect Ctrl+C in accept().
-        s.settimeout(0.5)
+        s.settimeout(0.1)
         print(f"Server listening on port {port}")
 
         # We keep accepting connections until KeyboardInterrupt is raised.
@@ -249,7 +249,7 @@ def main():
         print("ERROR: Could not start streaming client.")
         sys.exit(1)
 
-    HOST = '127.0.0.1'  # Listen on specified network interface
+    HOST = '0.0.0.0'    # Listen on all network interfaces
     PORT = 9999         # Arbitrary non-privileged port
 
     try:
