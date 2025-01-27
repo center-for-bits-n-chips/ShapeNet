@@ -633,7 +633,7 @@ def main():
             print("exiting")
 
     try:
-        HOST = '127.0.0.1'  # Listen on specified network interface
+        HOST = '0.0.0.0'  # Listen on specified network interface
         PORT = 9999         # Arbitrary non-privileged port
         start_server(HOST, PORT)
     except KeyboardInterrupt:
