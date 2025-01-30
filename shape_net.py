@@ -20,7 +20,8 @@ import threading
 np.set_printoptions(linewidth=np.inf)
 
 refresh_rate_ms = 5
-num_mesh_markers = 7
+num_mesh_markers = 8
+n_basis = 2 # number of basis functions
 
 Z_center = 0.0
 
@@ -53,7 +54,7 @@ def handle_client(stop_event, conn, addr):
 
             # Send data to LabVIEW
             gap = 2.5*80 # mm gap between cmd surf and mesh
-            Z_center_mm = Z_center * gap 
+            Z_center_mm = Z_center
             num_to_send = -Z_center_mm  # negative to be consistent with laser reading
             data_to_send = struct.pack('>d', num_to_send)
             try:
@@ -148,10 +149,13 @@ class RealTimeMeshShape(QMainWindow):
         self.setCentralWidget(self.plot_widget)
         
         init_data = range(num_mesh_markers)
+        init_NN_output = range(3*n_basis)
         # Initialize the bar graph
         self.data = init_data
-        self.bar_graph = pg.BarGraphItem(x=np.arange(len(init_data)), height=init_data, width=0.6, brush='r')
-        self.plot_widget.addItem(self.bar_graph)
+        self.mocap_bar_graph = pg.BarGraphItem(x=np.arange(num_mesh_markers), height=init_data, width=0.2, brush='r')
+        self.NN_output_bar_graph = pg.BarGraphItem(x=np.arange(3*n_basis), height=init_NN_output, width=0.5, brush='g')
+        self.plot_widget.addItem(self.mocap_bar_graph)
+        self.plot_widget.addItem(self.NN_output_bar_graph)
 
         # Set up the OpenGL view widget
         self.view = gl.GLViewWidget()
@@ -262,7 +266,7 @@ class RealTimeMeshShape(QMainWindow):
             mesh_marker_pos = rotate_points(mesh_marker_pos, rotation_mat)
 
             # rim offset
-            z_offset = -0.0195 - 0.0038
+            z_offset = -0.0195 #-0.0195 # 0.0038
             mesh_marker_pos[:,2] -= z_offset
 
             input_vector = []
@@ -271,8 +275,8 @@ class RealTimeMeshShape(QMainWindow):
             input_array = np.array(input_vector)
 
             # normalize the input
-            shape_net_input = normalize_input(input_array, radius)
-            predicted_coefficients = process_input(shape_net_input)
+            mocap_input = normalize_input(input_array, radius, gap)
+            predicted_coefficients = process_input(mocap_input)
             # Print each number with 2 decimal places
             #print(" ".join(f"{num:.2f}" for num in shape_net_input[2::3]))
 
@@ -284,10 +288,14 @@ class RealTimeMeshShape(QMainWindow):
             full_basis_functions = generate_basis_functions_for_surface(R, Theta, n_basis).detach().numpy()
             Z_np = np.dot(full_basis_functions, predicted_coefficients)
 
-            # CENTER LOCATION
-            center_basis_functions = generate_basis_functions_for_surface(torch.zeros(1, 1),torch.zeros(1, 1), n_basis).detach().numpy()
-            Z_center_np = np.dot(center_basis_functions, predicted_coefficients)
-            Z_center = Z_center_np.item()
+            # CENTER LOCATION FROM NN
+            #center_basis_functions = generate_basis_functions_for_surface(torch.zeros(1, 1),torch.zeros(1, 1), n_basis).detach().numpy()
+            #Z_center_np = np.dot(center_basis_functions, predicted_coefficients)
+            #Z_center = Z_center_np.item()
+
+            # CENTER LOCATION FROM MOCAP
+            Z_mocap_mm = 1000 * input_array[2::3] # original array is in meters
+            Z_center = Z_mocap_mm[3] # NOTE the center marker id changes
 
             # redimensionalize
             R = radius * R
@@ -299,8 +307,8 @@ class RealTimeMeshShape(QMainWindow):
             Y_np = Y.detach().numpy()
 
             # increase deformation scaling
-            Z_scaling = 1.0 / gap # scaling for 0 to 1 gap
-            #Z_scaling = 1.0
+            #Z_scaling = 1.0 / gap # scaling for 0 to 1 gap
+            Z_scaling = 10.0
             Z_np *= Z_scaling
             mesh_marker_pos[:,2] *= Z_scaling
             
@@ -325,20 +333,19 @@ class RealTimeMeshShape(QMainWindow):
             self.scatter_rim.setData(pos=rim_marker_pos)
             self.scatter_mesh.setData(pos=mesh_marker_pos)
 
-            self.data = shape_net_input[2::3] # plot just the z-displacement
-            self.bar_graph.setOpts(height=self.data)
+            #self.data = Z_mocap_mm # plot the z-displacement in mm
+            self.data = mocap_input[2::3] # z-input to shape net
+            self.mocap_bar_graph.setOpts(height=self.data)
+            self.NN_output_bar_graph.setOpts(height=predicted_coefficients)
 
 # Path to the saved .pth file
-model_path = 'shape_net_model_1_basis.pth'
+model_path = 'shape_net_model_2_basis_8_markers_new.pth'
 
 # Load the state_dict
 state_dict = torch.load(model_path, map_location=torch.device('cpu'), weights_only=True)  # Use 'cuda' if using GPU
 
-n_basis = 1
-n_samples = 7
-
 # Define Model & Training Parameters
-input_size = 3*n_samples+1  # Number of features in X_train
+input_size = 3*num_mesh_markers+1  # Number of features in X_train
 hidden_size = 128
 output_size = 3*n_basis  # Number of basis function coefficients
 
@@ -543,11 +550,10 @@ def process_input(input):
     
     return predicted_coefficients
 
-def normalize_input(input, radius):
+def normalize_input(input, radius, gap):
     # (x,y,z)
     # note that x is the mesh displacement
     # redefine x,y,z to match neural network input
-    gap = 0.035 # 3.5 cm
 
     x = input[0::3]
     y = input[1::3]
@@ -627,7 +633,7 @@ def main():
             print("exiting")
 
     try:
-        HOST = '127.0.0.1'  # Listen on specified network interface
+        HOST = '0.0.0.0'  # Listen on specified network interface
         PORT = 9999         # Arbitrary non-privileged port
         start_server(HOST, PORT)
     except KeyboardInterrupt:
