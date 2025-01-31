@@ -5,26 +5,11 @@ from NatNetClient import NatNetClient
 import socket
 import struct
 
-import torch
-from ShapeNet import ShapeNet
-from torch.special import bessel_j0, bessel_j1
-#from scipy.special import jn_zeros, jv
-
 np.set_printoptions(linewidth=np.inf)
 
 num_mesh_markers = 8
 Z_center = 0.0
-Z_center_shapenet = 0.0
-n_basis = 2 # number of basis functions
-gap = 37 # [mm]
-
-# Create Bessel Function Zeros Table
-# alphas = []
-# for m in range(2):
-#     zeros = jn_zeros(m, n_basis)
-#     alphas.extend(zeros)
-
-alphas = [2.404825557695773, 5.520078110286311, 3.831705970207512, 7.015586669815619]
+Z_mocap_mm = [0.0]*num_mesh_markers
 
 # NOTE that the marker IDs appear to change between optitrack power cycles
 # however for the rigid bodies they are consistently 1,2,3
@@ -32,97 +17,11 @@ mesh_marker_positions = {}
 ground_marker_positions = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
 rim_marker_positions = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
 
-# Path to the saved .pth file
-model_path = 'shape_net_model_2_basis_8_markers_new.pth'
-
-# Load the state_dict
-state_dict = torch.load(model_path, map_location=torch.device('cpu'), weights_only=True)  # Use 'cuda' if using GPU
-
-# Define Model & Training Parameters
-input_size = 3*num_mesh_markers+1  # Number of features in X_train
-hidden_size = 128
-output_size = 3*n_basis  # Number of basis function coefficients
-
-# Initialize the neural network
-model = ShapeNet(input_size, hidden_size, output_size)
-
-# Load the state_dict into the model
-model.load_state_dict(state_dict)
-
-# Set device (CPU or GPU)
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model.to(device)
-model.eval()
-
-# Placeholder function for neural network processing
-def process_input(input):
-    # Replace this with your neural network inference code
-    q = [0.0]
-    q.extend(input)
-    q = np.array(q, dtype=np.float32) # NN input must be float
-
-    full_input = torch.from_numpy(q)
-    
-    with torch.no_grad():  # Disable gradient computation for evaluation
-        predicted_coefficients = model(full_input).numpy().flatten()
-    
-    return predicted_coefficients
-
-# Bessel functions
-def generate_basis_functions_for_surface(r, theta, N):
-    basis_functions = []
-    for k in range(N):
-        n = k + 1 # indexing by n = 1, 2, 3
-        phi_n = bessel_j0(alphas[k]*r)
-        phi_n_sin = bessel_j1(alphas[n_basis + k]*r) * torch.sin(theta)
-        phi_n_cos = bessel_j1(alphas[n_basis + k]*r) * torch.cos(theta)
-        basis_functions.append(phi_n)
-        basis_functions.append(phi_n_sin)
-        basis_functions.append(phi_n_cos)
-    return torch.stack(basis_functions, dim=2)  # Shape: (n_samples, n_basis)
-
-def normalize_input(input, radius, gap):
-    # (x,y,z)
-    # note that x is the mesh displacement
-    # redefine x,y,z to match neural network input
-
-    x = input[0::3]
-    y = input[1::3]
-    z = input[2::3]
-
-    r, theta = cartesian_to_polar_numpy(x, y)
-    r_normalized = r / radius
-    z_normalized = z / gap
-
-    # Use zip and list comprehension to interleave
-    normalized_input = [item for trio in zip(r_normalized, theta, z_normalized) for item in trio]
-    return normalized_input
-
-def cartesian_to_polar_numpy(x, y):
-    """
-    Convert lists or NumPy arrays of Cartesian coordinates (x, y) to Polar coordinates (r, theta).
-    
-    Parameters:
-    - x (list or np.ndarray): X-coordinates.
-    - y (list or np.ndarray): Y-coordinates.
-    
-    Returns:
-    - r (np.ndarray): Radial distances.
-    - theta (np.ndarray): Angles in radians.
-    """
-    x = np.array(x, dtype=float)
-    y = np.array(y, dtype=float)
-    
-    r = np.hypot(x, y)          # Equivalent to sqrt(x**2 + y**2)
-    theta = np.arctan2(y, x) + np.pi    # Angle in radians between -pi and pi
-    
-    return r, theta
-
 def handle_client(conn, addr):
     """
     Handle interaction with a single connected client.
     """
-    global Z_center
+    global Z_mocap_mm
     print(f"Connected by {addr}")
 
     # Prevent blocking forever when calling conn.recv()
@@ -150,8 +49,9 @@ def handle_client(conn, addr):
                 break
 
             # Send data to LabVIEW
-            num_to_send = -Z_center  # negative to be consistent with laser reading
-            data_to_send = struct.pack('>d', num_to_send)
+            num_to_send = -Z_mocap_mm  # negative to be consistent with laser reading
+            format_string = '>' + 'd' * len(Z_mocap_mm)
+            data_to_send = struct.pack(format_string, *num_to_send)
             try:
                 conn.sendall(data_to_send)
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
@@ -260,8 +160,7 @@ def compute_circumradius(p1, p2, p3):
 
 # Callback function to handle labeled marker data
 def receive_labeled_marker(marker_id, model_id, position):
-    global Z_center
-    global Z_center_shapenet
+    global Z_mocap_mm
 
     if model_id == 0:  # mesh markers
         x, y, z = position
@@ -308,34 +207,10 @@ def receive_labeled_marker(marker_id, model_id, position):
             input_vector.extend(marker)
         input_array = np.array(input_vector)
 
-        input_vector = []
-        for marker in mesh_marker_pos:
-            input_vector.extend(marker)
-        input_array = np.array(input_vector)
-
-        # normalize the input
-        mocap_input = normalize_input(input_array, radius, gap)
-        predicted_coefficients = process_input(mocap_input)
-        # Print each number with 2 decimal places
-        #print(" ".join(f"{num:.2f}" for num in shape_net_input[2::3]))
-
-        # compute reconstructed shape from NN output            
-        #r_full = torch.linspace(0, 1.0, 50)
-        #theta_full = torch.linspace(0, 2*np.pi, 50)
-        #Theta, R = torch.meshgrid(theta_full, r_full, indexing='ij')
-
-        #full_basis_functions = generate_basis_functions_for_surface(R, Theta, n_basis).detach().numpy()
-        #Z_np = np.dot(full_basis_functions, predicted_coefficients)
-
-        # CENTER LOCATION FROM NN
-        center_basis_functions = generate_basis_functions_for_surface(torch.zeros(1, 1),torch.zeros(1, 1), n_basis).detach().numpy()
-        Z_center_np = np.dot(center_basis_functions, predicted_coefficients)
-        Z_center_shapenet = Z_center_np.item()*gap
-
         # CENTER LOCATION FROM MOCAP (in mm)
         Z_mocap_mm = 1000 * input_array[2::3]  # original array is in meters
-        Z_center = Z_mocap_mm[5]  # pick the appropriate marker for "center"
-        print(Z_center, Z_center_shapenet)
+        #Z_center = Z_mocap_mm[5]  # pick the appropriate marker for "center"
+        #print(Z_mocap_mm)
 
 def my_parse_args(arg_list, args_dict):
     # set up base values
