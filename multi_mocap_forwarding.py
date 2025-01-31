@@ -199,8 +199,8 @@ def receive_labeled_marker(marker_id, model_id, position):
         mesh_marker_pos = rotate_points(mesh_marker_pos, rotation_mat)
 
         # rim offset
-        z_offset = -0.0195
-        mesh_marker_pos[:,2] -= z_offset
+        z_offset = 0.01754 # MEASURED WITH CALIPERS
+        mesh_marker_pos[:,2] += z_offset
 
         input_vector = []
         for marker in mesh_marker_pos:
@@ -208,6 +208,7 @@ def receive_labeled_marker(marker_id, model_id, position):
         input_array = np.array(input_vector)
 
         # CENTER LOCATION FROM MOCAP (in mm)
+        print(input_array)
         Z_mocap_mm = 1000 * input_array[2::3]  # original array is in meters
         #Z_center = Z_mocap_mm[5]  # pick the appropriate marker for "center"
         #print(Z_mocap_mm)
