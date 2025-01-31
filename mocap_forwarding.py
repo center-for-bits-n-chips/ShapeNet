@@ -207,7 +207,7 @@ def receive_labeled_marker(marker_id, model_id, position):
 
         # CENTER LOCATION FROM MOCAP (in mm)
         Z_mocap_mm = 1000 * input_array[2::3]  # original array is in meters
-        Z_center = Z_mocap_mm[3]  # pick the appropriate marker for "center"
+        Z_center = Z_mocap_mm[5]  # pick the appropriate marker for "center"
         #print(Z_center)
 
 def my_parse_args(arg_list, args_dict):
