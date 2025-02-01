@@ -10,13 +10,16 @@ from ShapeNet import ShapeNet
 from torch.special import bessel_j0, bessel_j1
 #from scipy.special import jn_zeros, jv
 
+import time
+
 np.set_printoptions(linewidth=np.inf)
 
 num_mesh_markers = 8
 Z_center = 0.0
-Z_center_shapenet = 0.0
+Z_mocap_mm = [0.0]*(num_mesh_markers + 1) # extra marker is the shapenet center
 n_basis = 2 # number of basis functions
 gap = 37 # [mm]
+rim_z_offset = 0.01754 # MEASURED WITH CALIPERS
 
 # Create Bessel Function Zeros Table
 # alphas = []
@@ -33,7 +36,7 @@ ground_marker_positions = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]
 rim_marker_positions = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
 
 # Path to the saved .pth file
-model_path = 'shape_net_model_2_basis_8_markers_new.pth'
+model_path = 'shape_net_model.pth'
 
 # Load the state_dict
 state_dict = torch.load(model_path, map_location=torch.device('cpu'), weights_only=True)  # Use 'cuda' if using GPU
@@ -57,11 +60,11 @@ model.eval()
 # Placeholder function for neural network processing
 def process_input(input):
     # Replace this with your neural network inference code
-    q = [0.0]
-    q.extend(input)
-    q = np.array(q, dtype=np.float32) # NN input must be float
+    voltage = [0.0]
+    voltage.extend(input)
+    voltage = np.array(voltage, dtype=np.float32) # NN input must be float
 
-    full_input = torch.from_numpy(q)
+    full_input = torch.from_numpy(voltage)
     
     with torch.no_grad():  # Disable gradient computation for evaluation
         predicted_coefficients = model(full_input).numpy().flatten()
@@ -92,7 +95,7 @@ def normalize_input(input, radius, gap):
 
     r, theta = cartesian_to_polar_numpy(x, y)
     r_normalized = r / radius
-    z_normalized = z / gap
+    z_normalized = 1000*z / gap # covert z from meters to mm
 
     # Use zip and list comprehension to interleave
     normalized_input = [item for trio in zip(r_normalized, theta, z_normalized) for item in trio]
@@ -150,8 +153,9 @@ def handle_client(conn, addr):
                 break
 
             # Send data to LabVIEW
-            num_to_send = -Z_center  # negative to be consistent with laser reading
-            data_to_send = struct.pack('>d', num_to_send)
+            num_to_send = Z_mocap_mm
+            format_string = '>' + 'd' * len(Z_mocap_mm)
+            data_to_send = struct.pack(format_string, *num_to_send)
             try:
                 conn.sendall(data_to_send)
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
@@ -260,8 +264,7 @@ def compute_circumradius(p1, p2, p3):
 
 # Callback function to handle labeled marker data
 def receive_labeled_marker(marker_id, model_id, position):
-    global Z_center
-    global Z_center_shapenet
+    global Z_mocap_mm
 
     if model_id == 0:  # mesh markers
         x, y, z = position
@@ -299,9 +302,8 @@ def receive_labeled_marker(marker_id, model_id, position):
         rim_marker_pos = rotate_points(rim_marker_pos, rotation_mat)
         mesh_marker_pos = rotate_points(mesh_marker_pos, rotation_mat)
 
-        # rim offset
-        z_offset = -0.0195
-        mesh_marker_pos[:,2] -= z_offset
+        # correct for rim offset
+        mesh_marker_pos[:,2] += rim_z_offset
 
         input_vector = []
         for marker in mesh_marker_pos:
@@ -313,11 +315,11 @@ def receive_labeled_marker(marker_id, model_id, position):
             input_vector.extend(marker)
         input_array = np.array(input_vector)
 
+        start_time = time.perf_counter()
         # normalize the input
         mocap_input = normalize_input(input_array, radius, gap)
         predicted_coefficients = process_input(mocap_input)
-        # Print each number with 2 decimal places
-        #print(" ".join(f"{num:.2f}" for num in shape_net_input[2::3]))
+
 
         # compute reconstructed shape from NN output            
         #r_full = torch.linspace(0, 1.0, 50)
@@ -331,11 +333,15 @@ def receive_labeled_marker(marker_id, model_id, position):
         center_basis_functions = generate_basis_functions_for_surface(torch.zeros(1, 1),torch.zeros(1, 1), n_basis).detach().numpy()
         Z_center_np = np.dot(center_basis_functions, predicted_coefficients)
         Z_center_shapenet = Z_center_np.item()*gap
-
+        
         # CENTER LOCATION FROM MOCAP (in mm)
-        Z_mocap_mm = 1000 * input_array[2::3]  # original array is in meters
-        Z_center = Z_mocap_mm[5]  # pick the appropriate marker for "center"
-        print(Z_center, Z_center_shapenet)
+        # reverse sign to make it positive for the laser
+        Z_mocap_mm[1:] = -1000 * input_array[2::3]  # original array is in meters
+        Z_mocap_mm[0] = -Z_center_shapenet
+        end_time = time.perf_counter()
+        
+        elapsed_time = end_time - start_time
+        #print(f"Elapsed time: {elapsed_time:.6f} seconds")
 
 def my_parse_args(arg_list, args_dict):
     # set up base values

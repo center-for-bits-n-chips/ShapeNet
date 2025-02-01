@@ -15,19 +15,31 @@ def read_labview_binary(filename):
     # Figure out how many records there are
     num_records = data.size // 9
 
+    # Discard data that's not fully written
+    largest_multiple = (data.size // 9) * 9
+    data = data[:largest_multiple]
+
     # Reshape so that each row corresponds to 16 doubles (one record)
     data = data.reshape((num_records, 9))
+
+    # Write to CSV
+    np.savetxt("output.csv", data, delimiter=",", fmt="%.4f")
     
     # Split into two arrays: first 8 columns, last 8 columns
-    remove_initial = 500
-    voltage = data[remove_initial:, 0]
-    mocap = data[remove_initial:, 1:]
+    #data_initial = 500
+    #data_final = 15000
+    #voltage = data[data_initial:data_final, 0]
+    #mocap = data[data_initial:data_final, 1:]
+    voltage = data[:, 0]
+    mocap = data[:, 1:]
     
     return voltage, mocap
 
 def main():
     # Path to your binary data file
     filename = "pull-in.dat"
+    # filename = "data/2025-01-31 ramp pull-in.dat"
+    # filename = "data/impulse_data.dat"
     
     # Read the data
     voltage, mocap = read_labview_binary(filename)

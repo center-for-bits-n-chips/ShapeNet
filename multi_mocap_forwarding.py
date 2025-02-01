@@ -10,6 +10,8 @@ np.set_printoptions(linewidth=np.inf)
 num_mesh_markers = 8
 Z_center = 0.0
 Z_mocap_mm = [0.0]*num_mesh_markers
+# rim offset
+rim_z_offset = 0.01754 # MEASURED WITH CALIPERS
 
 # NOTE that the marker IDs appear to change between optitrack power cycles
 # however for the rigid bodies they are consistently 1,2,3
@@ -198,9 +200,8 @@ def receive_labeled_marker(marker_id, model_id, position):
         rim_marker_pos = rotate_points(rim_marker_pos, rotation_mat)
         mesh_marker_pos = rotate_points(mesh_marker_pos, rotation_mat)
 
-        # rim offset
-        z_offset = 0.01754 # MEASURED WITH CALIPERS
-        mesh_marker_pos[:,2] += z_offset
+        # correct for rim offset
+        mesh_marker_pos[:,2] += rim_z_offset
 
         input_vector = []
         for marker in mesh_marker_pos:
@@ -208,7 +209,6 @@ def receive_labeled_marker(marker_id, model_id, position):
         input_array = np.array(input_vector)
 
         # CENTER LOCATION FROM MOCAP (in mm)
-        print(input_array)
         Z_mocap_mm = 1000 * input_array[2::3]  # original array is in meters
         #Z_center = Z_mocap_mm[5]  # pick the appropriate marker for "center"
         #print(Z_mocap_mm)

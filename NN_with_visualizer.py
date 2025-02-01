@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 from torch.special import bessel_j0, bessel_j1
 from scipy.special import jn_zeros, jv
+from ShapeNet import ShapeNet
 
 import socket
 import struct
@@ -24,9 +25,11 @@ num_mesh_markers = 8
 n_basis = 2 # number of basis functions
 
 Z_center = 0.0
+Z_mocap_mm = [0.0] * num_mesh_markers
 
 def handle_client(stop_event, conn, addr):
     global Z_center
+    global Z_mocap_mm
     print(f"Connected by {addr}")
     conn.settimeout(1.0)  # Set timeout to prevent blocking indefinitely
     try:
@@ -53,10 +56,9 @@ def handle_client(stop_event, conn, addr):
                 break
 
             # Send data to LabVIEW
-            gap = 2.5*80 # mm gap between cmd surf and mesh
-            Z_center_mm = Z_center
-            num_to_send = -Z_center_mm  # negative to be consistent with laser reading
-            data_to_send = struct.pack('>d', num_to_send)
+            num_to_send = -Z_mocap_mm  # negative to be consistent with laser reading
+            format_string = '>' + 'd' * len(Z_mocap_mm)
+            data_to_send = struct.pack(format_string, *num_to_send)
             try:
                 conn.sendall(data_to_send)
                 #print(f"Sent to LabVIEW: {num_to_send}")
@@ -115,26 +117,6 @@ def start_server(host, port):
             for t in threads:
                 t.join()
             print("All client connections have been closed.")
-
-# Define the neural network model
-class ShapeNet(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
-        super(ShapeNet, self).__init__()
-        self.relu = nn.ReLU()
-        self.fc1 = nn.Linear(input_size, hidden_size)  # First hidden layer
-        self.fc2 = nn.Linear(hidden_size, hidden_size)  # Second hidden layer
-        self.fc3 = nn.Linear(hidden_size, output_size) # Output layer
-        self.dropout = nn.Dropout(p=0.2)  # Dropout with 20% probability
-
-    def forward(self, x):
-        out = self.fc1(x)
-        out = self.relu(out)
-        out = self.dropout(out)
-        out = self.fc2(out)
-        out = self.relu(out)
-        out = self.dropout(out)
-        out = self.fc3(out)
-        return out
 
 # JOHNDEBUG: THIS IS A BAD HACK RIGHT NOW
 # USING BOTH A GLViewWidget and PlotWidget in the same class
@@ -339,7 +321,8 @@ class RealTimeMeshShape(QMainWindow):
             self.NN_output_bar_graph.setOpts(height=predicted_coefficients)
 
 # Path to the saved .pth file
-model_path = 'shape_net_model_2_basis_8_markers_new.pth'
+# model_path = 'shape_net_model_2_basis_8_markers_new.pth' # simulated data
+model_path = 'shape_net_model.pth'
 
 # Load the state_dict
 state_dict = torch.load(model_path, map_location=torch.device('cpu'), weights_only=True)  # Use 'cuda' if using GPU
