@@ -51,7 +51,7 @@ def handle_client(conn, addr):
                 break
 
             # Send data to LabVIEW
-            num_to_send = -Z_mocap_mm  # negative to be consistent with laser reading
+            num_to_send = -1.0 * Z_mocap_mm  # negative to be consistent with laser reading
             format_string = '>' + 'd' * len(Z_mocap_mm)
             data_to_send = struct.pack(format_string, *num_to_send)
             try:
@@ -119,6 +119,7 @@ def rotate_points(points, rotation_mat):
     """
     return points @ rotation_mat.T
 
+import time
 def compute_circumradius(p1, p2, p3):
     """
     Compute the circumradius, center, and normal of the unique circle
@@ -167,14 +168,10 @@ def receive_labeled_marker(marker_id, model_id, position):
     if model_id == 0:  # mesh markers
         x, y, z = position
         mesh_marker_positions[marker_id] = [y, z, x]
-    elif model_id == 1:  # ground markers
-        x, y, z = position
-        ground_marker_positions[marker_id] = [y, z, x]
-    elif model_id == 2:  # rim markers
+    elif model_id == 1:  # rim markers
         x, y, z = position
         rim_marker_positions[marker_id] = [y, z, x]
 
-    ground_marker_pos = list(ground_marker_positions.values())
     rim_marker_pos = list(rim_marker_positions.values())
     mesh_marker_pos = list(mesh_marker_positions.values())
 
@@ -182,6 +179,7 @@ def receive_labeled_marker(marker_id, model_id, position):
     all_mesh_markers_updated = (len(mesh_marker_pos) == num_mesh_markers)
 
     if all_rim_markers_nonzero and all_mesh_markers_updated:
+    
         # draw a circle around the rim
         p1, p2, p3 = rim_marker_pos
         center, radius, normal = compute_circumradius(p1,p2,p3)
@@ -208,10 +206,10 @@ def receive_labeled_marker(marker_id, model_id, position):
             input_vector.extend(marker)
         input_array = np.array(input_vector)
 
+        #time.sleep(0.001)
+
         # CENTER LOCATION FROM MOCAP (in mm)
         Z_mocap_mm = 1000 * input_array[2::3]  # original array is in meters
-        #Z_center = Z_mocap_mm[5]  # pick the appropriate marker for "center"
-        #print(Z_mocap_mm)
 
 def my_parse_args(arg_list, args_dict):
     # set up base values
