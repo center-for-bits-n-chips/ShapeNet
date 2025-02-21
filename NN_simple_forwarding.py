@@ -32,8 +32,12 @@ alphas = [2.404825557695773, 5.520078110286311, 3.831705970207512, 7.01558666981
 # NOTE that the marker IDs appear to change between optitrack power cycles
 # however for the rigid bodies they are consistently 1,2,3
 mesh_marker_positions = {}
-ground_marker_positions = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
 rim_marker_positions = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
+normal = np.array([0, 0, -1])
+center = np.array([0, 0, 0])
+input_array = np.zeros(3*num_mesh_markers)
+radius = 0.25 # 25 cm
+flag_calculate_rim = True
 
 # Path to the saved .pth file
 model_path = 'shape_net_model.pth'
@@ -125,7 +129,7 @@ def handle_client(conn, addr):
     """
     Handle interaction with a single connected client.
     """
-    global Z_center
+    global Z_mocap_mm, input_array, radius
     print(f"Connected by {addr}")
 
     # Prevent blocking forever when calling conn.recv()
@@ -152,6 +156,18 @@ def handle_client(conn, addr):
                 print(f"Error receiving data from {addr}: {e}")
                 break
 
+            # Calculate NN
+            # normalize the input
+            mocap_input = normalize_input(input_array, radius, gap)
+            print(mocap_input)
+            predicted_coefficients = process_input(mocap_input)
+      
+            # CENTER LOCATION FROM NN
+            center_basis_functions = generate_basis_functions_for_surface(torch.zeros(1, 1),torch.zeros(1, 1), n_basis).detach().numpy()
+            Z_center_np = np.dot(center_basis_functions, predicted_coefficients)
+            Z_center_shapenet = Z_center_np.item()*gap
+            Z_mocap_mm[0] = Z_center_shapenet
+            
             # Send data to LabVIEW
             num_to_send = Z_mocap_mm
             format_string = '>' + 'd' * len(Z_mocap_mm)
@@ -264,19 +280,15 @@ def compute_circumradius(p1, p2, p3):
 
 # Callback function to handle labeled marker data
 def receive_labeled_marker(marker_id, model_id, position):
-    global Z_mocap_mm
-
+    global Z_mocap_mm, flag_calculate_rim, center, normal, input_array, radius
+    
     if model_id == 0:  # mesh markers
         x, y, z = position
         mesh_marker_positions[marker_id] = [y, z, x]
-    elif model_id == 1:  # ground markers
-        x, y, z = position
-        ground_marker_positions[marker_id] = [y, z, x]
-    elif model_id == 2:  # rim markers
+    elif model_id == 1:  # rim markers
         x, y, z = position
         rim_marker_positions[marker_id] = [y, z, x]
 
-    ground_marker_pos = list(ground_marker_positions.values())
     rim_marker_pos = list(rim_marker_positions.values())
     mesh_marker_pos = list(mesh_marker_positions.values())
 
@@ -284,9 +296,12 @@ def receive_labeled_marker(marker_id, model_id, position):
     all_mesh_markers_updated = (len(mesh_marker_pos) == num_mesh_markers)
 
     if all_rim_markers_nonzero and all_mesh_markers_updated:
-        # draw a circle around the rim
-        p1, p2, p3 = rim_marker_pos
-        center, radius, normal = compute_circumradius(p1,p2,p3)
+        if flag_calculate_rim:
+            # draw a circle around the rim
+            p1, p2, p3 = rim_marker_pos
+            center, radius, normal = compute_circumradius(p1,p2,p3)
+            flag_calculate_rim = False
+            print("Finished Calculating Rim")
         
         # Target vector is the z-axis
         z_axis = np.array([0, 0, -1])
@@ -309,39 +324,10 @@ def receive_labeled_marker(marker_id, model_id, position):
         for marker in mesh_marker_pos:
             input_vector.extend(marker)
         input_array = np.array(input_vector)
-
-        input_vector = []
-        for marker in mesh_marker_pos:
-            input_vector.extend(marker)
-        input_array = np.array(input_vector)
-
-        start_time = time.perf_counter()
-        # normalize the input
-        mocap_input = normalize_input(input_array, radius, gap)
-        predicted_coefficients = process_input(mocap_input)
-
-
-        # compute reconstructed shape from NN output            
-        #r_full = torch.linspace(0, 1.0, 50)
-        #theta_full = torch.linspace(0, 2*np.pi, 50)
-        #Theta, R = torch.meshgrid(theta_full, r_full, indexing='ij')
-
-        #full_basis_functions = generate_basis_functions_for_surface(R, Theta, n_basis).detach().numpy()
-        #Z_np = np.dot(full_basis_functions, predicted_coefficients)
-
-        # CENTER LOCATION FROM NN
-        center_basis_functions = generate_basis_functions_for_surface(torch.zeros(1, 1),torch.zeros(1, 1), n_basis).detach().numpy()
-        Z_center_np = np.dot(center_basis_functions, predicted_coefficients)
-        Z_center_shapenet = Z_center_np.item()*gap
         
         # CENTER LOCATION FROM MOCAP (in mm)
         # reverse sign to make it positive for the laser
         Z_mocap_mm[1:] = -1000 * input_array[2::3]  # original array is in meters
-        Z_mocap_mm[0] = -Z_center_shapenet
-        end_time = time.perf_counter()
-        
-        elapsed_time = end_time - start_time
-        #print(f"Elapsed time: {elapsed_time:.6f} seconds")
 
 def my_parse_args(arg_list, args_dict):
     # set up base values
