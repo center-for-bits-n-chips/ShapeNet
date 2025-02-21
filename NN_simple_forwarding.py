@@ -159,7 +159,6 @@ def handle_client(conn, addr):
             # Calculate NN
             # normalize the input
             mocap_input = normalize_input(input_array, radius, gap)
-            print(mocap_input)
             predicted_coefficients = process_input(mocap_input)
       
             # CENTER LOCATION FROM NN

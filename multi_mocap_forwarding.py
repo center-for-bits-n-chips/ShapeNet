@@ -16,8 +16,11 @@ rim_z_offset = 0.01754 # MEASURED WITH CALIPERS
 # NOTE that the marker IDs appear to change between optitrack power cycles
 # however for the rigid bodies they are consistently 1,2,3
 mesh_marker_positions = {}
-ground_marker_positions = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
 rim_marker_positions = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
+normal = np.array([0, 0, -1])
+center = np.array([0, 0, 0])
+
+flag_calculate_rim = True
 
 def handle_client(conn, addr):
     """
@@ -163,7 +166,7 @@ def compute_circumradius(p1, p2, p3):
 
 # Callback function to handle labeled marker data
 def receive_labeled_marker(marker_id, model_id, position):
-    global Z_mocap_mm
+    global Z_mocap_mm, flag_calculate_rim, center, normal
 
     if model_id == 0:  # mesh markers
         x, y, z = position
@@ -179,10 +182,12 @@ def receive_labeled_marker(marker_id, model_id, position):
     all_mesh_markers_updated = (len(mesh_marker_pos) == num_mesh_markers)
 
     if all_rim_markers_nonzero and all_mesh_markers_updated:
-    
-        # draw a circle around the rim
-        p1, p2, p3 = rim_marker_pos
-        center, radius, normal = compute_circumradius(p1,p2,p3)
+        if flag_calculate_rim:
+            # draw a circle around the rim
+            p1, p2, p3 = rim_marker_pos
+            center, radius, normal = compute_circumradius(p1,p2,p3)
+            flag_calculate_rim = False
+            print("Finished Calculating Rim")
         
         # Target vector is the z-axis
         z_axis = np.array([0, 0, -1])
@@ -205,8 +210,6 @@ def receive_labeled_marker(marker_id, model_id, position):
         for marker in mesh_marker_pos:
             input_vector.extend(marker)
         input_array = np.array(input_vector)
-
-        #time.sleep(0.001)
 
         # CENTER LOCATION FROM MOCAP (in mm)
         Z_mocap_mm = 1000 * input_array[2::3]  # original array is in meters
