@@ -7,11 +7,11 @@ import struct
 
 np.set_printoptions(linewidth=np.inf)
 
-num_mesh_markers = 8
+num_mesh_markers = 7
 Z_center = 0.0
 Z_mocap_mm = [0.0]*num_mesh_markers
 # rim offset
-rim_z_offset = 0.01754 # MEASURED WITH CALIPERS
+rim_z_offset = -0.01754 # MEASURED WITH CALIPERS
 
 # NOTE that the marker IDs appear to change between optitrack power cycles
 # however for the rigid bodies they are consistently 1,2,3
@@ -54,7 +54,7 @@ def handle_client(conn, addr):
                 break
 
             # Send data to LabVIEW
-            num_to_send = -1.0 * Z_mocap_mm  # negative to be consistent with laser reading
+            num_to_send = Z_mocap_mm  # positive displacement is towards the cmd surf
             format_string = '>' + 'd' * len(Z_mocap_mm)
             data_to_send = struct.pack(format_string, *num_to_send)
             try:
@@ -67,7 +67,7 @@ def handle_client(conn, addr):
                 break
     finally:
         conn.close()
-        print(f"Connection with {addr} closed.")
+        print(f"Connection with {addr} closed.\n\n\n")
 
 def start_server(host, port):
     """
