@@ -1,26 +1,32 @@
 import sys
-import numpy as np
-from NatNetClient import NatNetClient
+from NatNet.NatNetClient import NatNetClient
 
 import socket
 import struct
+import numpy as np
 
 np.set_printoptions(linewidth=np.inf)
 
-num_mesh_markers = 8
+num_mesh_markers = 7
 Z_center = 0.0
+Z_mocap_mm = [0.0]*num_mesh_markers
+# rim offset
+rim_z_offset = -0.01754 # MEASURED WITH CALIPERS
 
 # NOTE that the marker IDs appear to change between optitrack power cycles
 # however for the rigid bodies they are consistently 1,2,3
 mesh_marker_positions = {}
-ground_marker_positions = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
 rim_marker_positions = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
+normal = np.array([0, 0, -1])
+center = np.array([0, 0, 0])
+
+flag_calculate_rim = True
 
 def handle_client(conn, addr):
     """
     Handle interaction with a single connected client.
     """
-    global Z_center
+    global Z_mocap_mm
     print(f"Connected by {addr}")
 
     # Prevent blocking forever when calling conn.recv()
@@ -48,8 +54,9 @@ def handle_client(conn, addr):
                 break
 
             # Send data to LabVIEW
-            num_to_send = -Z_center  # negative to be consistent with laser reading
-            data_to_send = struct.pack('>d', num_to_send)
+            num_to_send = Z_mocap_mm  # positive displacement is towards the cmd surf
+            format_string = '>' + 'd' * len(Z_mocap_mm)
+            data_to_send = struct.pack(format_string, *num_to_send)
             try:
                 conn.sendall(data_to_send)
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
@@ -60,7 +67,7 @@ def handle_client(conn, addr):
                 break
     finally:
         conn.close()
-        print(f"Connection with {addr} closed.")
+        print(f"Connection with {addr} closed.\n\n\n")
 
 def start_server(host, port):
     """
@@ -115,6 +122,7 @@ def rotate_points(points, rotation_mat):
     """
     return points @ rotation_mat.T
 
+import time
 def compute_circumradius(p1, p2, p3):
     """
     Compute the circumradius, center, and normal of the unique circle
@@ -158,19 +166,15 @@ def compute_circumradius(p1, p2, p3):
 
 # Callback function to handle labeled marker data
 def receive_labeled_marker(marker_id, model_id, position):
-    global Z_center
+    global Z_mocap_mm, flag_calculate_rim, center, normal
 
     if model_id == 0:  # mesh markers
         x, y, z = position
         mesh_marker_positions[marker_id] = [y, z, x]
-    elif model_id == 1:  # ground markers
-        x, y, z = position
-        ground_marker_positions[marker_id] = [y, z, x]
-    elif model_id == 2:  # rim markers
+    elif model_id == 1:  # rim markers
         x, y, z = position
         rim_marker_positions[marker_id] = [y, z, x]
 
-    ground_marker_pos = list(ground_marker_positions.values())
     rim_marker_pos = list(rim_marker_positions.values())
     mesh_marker_pos = list(mesh_marker_positions.values())
 
@@ -178,9 +182,12 @@ def receive_labeled_marker(marker_id, model_id, position):
     all_mesh_markers_updated = (len(mesh_marker_pos) == num_mesh_markers)
 
     if all_rim_markers_nonzero and all_mesh_markers_updated:
-        # draw a circle around the rim
-        p1, p2, p3 = rim_marker_pos
-        center, radius, normal = compute_circumradius(p1,p2,p3)
+        if flag_calculate_rim:
+            # draw a circle around the rim
+            p1, p2, p3 = rim_marker_pos
+            center, radius, normal = compute_circumradius(p1,p2,p3)
+            flag_calculate_rim = False
+            print("Finished Calculating Rim")
         
         # Target vector is the z-axis
         z_axis = np.array([0, 0, -1])
@@ -196,9 +203,8 @@ def receive_labeled_marker(marker_id, model_id, position):
         rim_marker_pos = rotate_points(rim_marker_pos, rotation_mat)
         mesh_marker_pos = rotate_points(mesh_marker_pos, rotation_mat)
 
-        # rim offset
-        z_offset = -0.0195
-        mesh_marker_pos[:,2] -= z_offset
+        # correct for rim offset
+        mesh_marker_pos[:,2] += rim_z_offset
 
         input_vector = []
         for marker in mesh_marker_pos:
@@ -207,8 +213,6 @@ def receive_labeled_marker(marker_id, model_id, position):
 
         # CENTER LOCATION FROM MOCAP (in mm)
         Z_mocap_mm = 1000 * input_array[2::3]  # original array is in meters
-        Z_center = Z_mocap_mm[5]  # pick the appropriate marker for "center"
-        #print(Z_center)
 
 def my_parse_args(arg_list, args_dict):
     # set up base values

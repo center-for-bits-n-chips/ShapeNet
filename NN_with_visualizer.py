@@ -1,6 +1,6 @@
 import sys
 import numpy as np
-from NatNetClient import NatNetClient
+from NatNet.NatNetClient import NatNetClient
 from PyQt5.QtWidgets import QApplication, QMainWindow
 from PyQt5.QtCore import QTimer
 import pyqtgraph as pg
@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 from torch.special import bessel_j0, bessel_j1
 from scipy.special import jn_zeros, jv
-from ShapeNet import ShapeNet
+from ShapeNet.ShapeNet import ShapeNet
 
 import socket
 import struct

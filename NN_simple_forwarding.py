@@ -1,20 +1,19 @@
 import sys
+sys.path.append('NatNet')
 import numpy as np
-from NatNetClient import NatNetClient
+from NatNet.NatNetClient import NatNetClient
 
 import socket
 import struct
 
 import torch
-from ShapeNet import ShapeNet
+from ShapeNet.ShapeNet import ShapeNet
 from torch.special import bessel_j0, bessel_j1
 #from scipy.special import jn_zeros, jv
 
-import time
-
 np.set_printoptions(linewidth=np.inf)
 
-num_mesh_markers = 8
+num_mesh_markers = 7
 Z_center = 0.0
 Z_mocap_mm = [0.0]*(num_mesh_markers + 1) # extra marker is the shapenet center
 n_basis = 2 # number of basis functions

@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.special import jn_zeros  
 from sklearn.model_selection import train_test_split
-from ShapeNet import ShapeNet, LS_PINN_Loss
+from ShapeNet.ShapeNet import ShapeNet, LS_PINN_Loss
 from torch.special import bessel_j0, bessel_j1
 import plotly.graph_objects as go
 import plotly.io as pio

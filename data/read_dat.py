@@ -37,7 +37,7 @@ def read_labview_binary(filename):
 
 def main():
     # Path to your binary data file
-    filename = "pull-in.dat"
+    filename = "2025-03-24 pull-in.dat"
     # filename = "data/2025-01-31 ramp pull-in.dat"
     # filename = "data/impulse_data.dat"
     
