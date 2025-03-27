@@ -1,271 +1,191 @@
 import sys
 from NatNet.NatNetClient import NatNetClient
-
 import socket
 import struct
 import numpy as np
+from dataclasses import dataclass
+from typing import Dict, List, Tuple
 
 np.set_printoptions(linewidth=np.inf)
 
-num_mesh_markers = 7
-Z_center = 0.0
-Z_mocap_mm = [0.0]*num_mesh_markers
-# rim offset
-rim_z_offset = -0.01754 # MEASURED WITH CALIPERS
+@dataclass
+class MocapConfig:
+    num_mesh_markers: int = 8
+    rim_z_offset: float = -0.01754  # MEASURED WITH CALIPERS
+    z_axis: np.ndarray = np.array([0, 0, -1])
+    center: np.ndarray = np.array([0, 0, 0])
 
-# NOTE that the marker IDs appear to change between optitrack power cycles
-# however for the rigid bodies they are consistently 1,2,3
-mesh_marker_positions = {}
-rim_marker_positions = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
-normal = np.array([0, 0, -1])
-center = np.array([0, 0, 0])
+class MocapServer:
+    def __init__(self, config: MocapConfig = MocapConfig()):
+        self.config = config
+        self.z_mocap_mm = [0.0] * config.num_mesh_markers
+        self.mesh_marker_positions: Dict[int, List[float]] = {}
+        self.rim_marker_positions: Dict[int, List[float]] = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
+        self.normal = np.array([0, 0, -1])
+        self.center = np.array([0, 0, 0])
+        self.flag_calculate_rim = True
 
-flag_calculate_rim = True
+    def rotation_matrix_from_vectors(self, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        """Returns the rotation matrix that aligns vector a to b."""
+        v = np.cross(a, b)
+        c = np.dot(a, b)
+        s = np.linalg.norm(v)
+        I = np.eye(3)
+        
+        if s == 0:
+            return I
 
-def handle_client(conn, addr):
-    """
-    Handle interaction with a single connected client.
-    """
-    global Z_mocap_mm
-    print(f"Connected by {addr}")
+        vx = np.array([[0, -v[2], v[1]],
+                      [v[2], 0, -v[0]],
+                      [-v[1], v[0], 0]])
+        
+        return I + vx + np.dot(vx, vx) * ((1 - c) / (s ** 2))
 
-    # Prevent blocking forever when calling conn.recv()
-    conn.settimeout(0.1)
+    def compute_circumradius(self, p1: List[float], p2: List[float], p3: List[float]) -> Tuple[np.ndarray, float, np.ndarray]:
+        """Compute the circumradius, center, and normal of the circle through three points."""
+        P1, P2, P3 = map(np.array, [p1, p2, p3])
+        A, B = P2 - P1, P3 - P1
+        cross_prod = np.cross(A, B)
+        cross_prod_mag = np.linalg.norm(cross_prod)
 
-    try:
-        while True:
-            # Receive data from LabVIEW
-            try:
-                data = conn.recv(1024)  # 1024 is the number of bytes
-                if data:
+        if np.isclose(cross_prod_mag, 0):
+            raise ValueError("Points are collinear")
+
+        normal = cross_prod / cross_prod_mag
+        mid_AB, mid_AC = (P1 + P2) / 2, (P1 + P3) / 2
+        perp_AB, perp_AC = np.cross(A, normal), np.cross(B, normal)
+
+        matrix = np.vstack([perp_AB, -perp_AC]).T
+        rhs = mid_AC - mid_AB
+        t = np.linalg.lstsq(matrix, rhs, rcond=None)[0][0]
+        
+        center = mid_AB + t * perp_AB
+        radius = np.linalg.norm(center - P1)
+        return center, radius, normal
+
+    def handle_client(self, conn: socket.socket, addr: Tuple[str, int]) -> None:
+        """Handle interaction with a single connected client."""
+        print(f"Connected by {addr}")
+        conn.settimeout(0.1)
+
+        try:
+            while True:
+                try:
+                    data = conn.recv(1024)
+                    if not data:
+                        print(f"Client {addr} closed the connection.")
+                        break
+                    
                     while len(data) >= 8:
-                        num = struct.unpack('>d', data[:8])[0]
+                        struct.unpack('>d', data[:8])[0]
                         data = data[8:]
-                else:
-                    print(f"Client {addr} closed the connection.")
+                        
+                    # Send data to client
+                    format_string = '>' + 'd' * len(self.z_mocap_mm)
+                    conn.sendall(struct.pack(format_string, *self.z_mocap_mm))
+                    
+                except socket.timeout:
+                    continue
+                except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError) as e:
+                    print(f"Connection error with {addr}: {e}")
                     break
-            except socket.timeout:
-                pass
-            except (ConnectionResetError, ConnectionAbortedError):
-                print(f"Connection with {addr} was reset during receive.")
-                break
-            except Exception as e:
-                print(f"Error receiving data from {addr}: {e}")
-                break
+        finally:
+            conn.close()
+            print(f"Connection with {addr} closed.\n\n\n")
 
-            # Send data to LabVIEW
-            num_to_send = Z_mocap_mm  # positive displacement is towards the cmd surf
-            format_string = '>' + 'd' * len(Z_mocap_mm)
-            data_to_send = struct.pack(format_string, *num_to_send)
-            try:
-                conn.sendall(data_to_send)
-            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-                print(f"Connection with {addr} was closed during send.")
-                break
-            except Exception as e:
-                print(f"Error sending data to {addr}: {e}")
-                break
-    finally:
-        conn.close()
-        print(f"Connection with {addr} closed.\n\n\n")
-
-def start_server(host, port):
-    """
-    Create and run the TCP server. This function blocks until stopped (e.g., via Ctrl+C).
-    """
-    # Use a context manager so the socket is cleaned up automatically
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((host, port))
-        s.listen()
-        # Also give the server socket a timeout so we can detect Ctrl+C in accept().
-        s.settimeout(0.1)
-        print(f"Server listening on port {port}")
-
-        # We keep accepting connections until KeyboardInterrupt is raised.
-        while True:
-            try:
-                conn, addr = s.accept()
-                print(f"Accepted connection from {addr}")
-                handle_client(conn, addr)
-            except socket.timeout:
-                pass  # No incoming connections, continue
-            except KeyboardInterrupt:
-                # Once we catch KeyboardInterrupt, break out of the loop
-                print("Server is shutting down.")
-                s.close()
-                break
-
-    print("All client connections have been closed.")
-
-def rotation_matrix_from_vectors(a, b):
-    """
-    Returns the rotation matrix that aligns vector a to b.
-    """
-    v = np.cross(a, b)
-    c = np.dot(a, b)
-    s = np.linalg.norm(v)
-    I = np.eye(3)
-    
-    if s == 0:  # vec1 and vec2 are already aligned
-        return I
-
-    vx = np.array([[0, -v[2], v[1]],
-                   [v[2], 0, -v[0]],
-                   [-v[1], v[0], 0]])
-    
-    rotation_matrix = I + vx + np.dot(vx, vx) * ((1 - c) / (s ** 2))
-    return rotation_matrix
-
-def rotate_points(points, rotation_mat):
-    """
-    Apply a rotation (3x3) to an array of points.
-    """
-    return points @ rotation_mat.T
-
-import time
-def compute_circumradius(p1, p2, p3):
-    """
-    Compute the circumradius, center, and normal of the unique circle
-    passing through three non-collinear points in 3D space.
-    """
-    # Convert points to NumPy arrays
-    P1 = np.array(p1, dtype=float)
-    P2 = np.array(p2, dtype=float)
-    P3 = np.array(p3, dtype=float)
-
-    # Compute vectors
-    A = P2 - P1
-    B = P3 - P1
-
-    cross_prod = np.cross(A, B)
-    cross_prod_mag = np.linalg.norm(cross_prod)
-
-    if np.isclose(cross_prod_mag, 0):
-        raise ValueError("The three points are collinear; no unique circumcircle exists.")
-
-    normal = cross_prod / cross_prod_mag
-
-    # Compute midpoints
-    mid_AB = (P1 + P2) / 2
-    mid_AC = (P1 + P3) / 2
-
-    # Perpendicular vectors in the plane
-    perp_AB = np.cross(A, normal)
-    perp_AC = np.cross(B, normal)
-
-    # Solve for intersection of lines
-    matrix = np.vstack([perp_AB, -perp_AC]).T
-    rhs = mid_AC - mid_AB
-
-    ts, residuals, rank, s = np.linalg.lstsq(matrix, rhs, rcond=None)
-    t, _ = ts
-    center = mid_AB + t * perp_AB
-    radius = np.linalg.norm(center - P1)
-
-    return center, radius, normal
-
-# Callback function to handle labeled marker data
-def receive_labeled_marker(marker_id, model_id, position):
-    global Z_mocap_mm, flag_calculate_rim, center, normal
-
-    if model_id == 0:  # mesh markers
+    def receive_labeled_marker(self, marker_id: int, model_id: int, position: List[float]) -> None:
+        """Handle labeled marker data from OptiTrack."""
         x, y, z = position
-        mesh_marker_positions[marker_id] = [y, z, x]
-    elif model_id == 1:  # rim markers
-        x, y, z = position
-        rim_marker_positions[marker_id] = [y, z, x]
+        if model_id == 0:  # mesh markers
+            self.mesh_marker_positions[marker_id] = [y, z, x]
+        elif model_id == 1:  # rim markers
+            self.rim_marker_positions[marker_id] = [y, z, x]
 
-    rim_marker_pos = list(rim_marker_positions.values())
-    mesh_marker_pos = list(mesh_marker_positions.values())
+        rim_marker_pos = list(self.rim_marker_positions.values())
+        mesh_marker_pos = list(self.mesh_marker_positions.values())
 
-    all_rim_markers_nonzero = all(value != 0 for row in rim_marker_pos for value in row)
-    all_mesh_markers_updated = (len(mesh_marker_pos) == num_mesh_markers)
+        if not (all(value != 0 for row in rim_marker_pos for value in row) and 
+                len(mesh_marker_pos) == self.config.num_mesh_markers):
+            return
 
-    if all_rim_markers_nonzero and all_mesh_markers_updated:
-        if flag_calculate_rim:
-            # draw a circle around the rim
+        if self.flag_calculate_rim:
             p1, p2, p3 = rim_marker_pos
-            center, radius, normal = compute_circumradius(p1,p2,p3)
-            flag_calculate_rim = False
+            self.center, _, self.normal = self.compute_circumradius(p1, p2, p3)
+            self.flag_calculate_rim = False
             print("Finished Calculating Rim")
-        
-        # Target vector is the z-axis
-        z_axis = np.array([0, 0, -1])
-        
-        # Compute rotation matrix
-        rotation_mat = rotation_matrix_from_vectors(normal, z_axis)
 
-        # Shift points over so center of rim is at (0,0,0)
-        mesh_marker_pos = np.array(mesh_marker_pos) - center
-        rim_marker_pos = np.array(rim_marker_pos) - center
+        # Transform points
+        rotation_mat = self.rotation_matrix_from_vectors(self.normal, self.config.z_axis)
+        mesh_marker_pos = np.array(mesh_marker_pos) - self.center
+        rim_marker_pos = np.array(rim_marker_pos) - self.center
 
-        # Rotate all points so they are aligned with the z-axis rim
-        rim_marker_pos = rotate_points(rim_marker_pos, rotation_mat)
-        mesh_marker_pos = rotate_points(mesh_marker_pos, rotation_mat)
+        # Rotate points
+        mesh_marker_pos = mesh_marker_pos @ rotation_mat.T
+        rim_marker_pos = rim_marker_pos @ rotation_mat.T
 
-        # correct for rim offset
-        mesh_marker_pos[:,2] += rim_z_offset
+        # Apply rim offset
+        mesh_marker_pos[:, 2] += self.config.rim_z_offset
 
-        input_vector = []
-        for marker in mesh_marker_pos:
-            input_vector.extend(marker)
-        input_array = np.array(input_vector)
+        # Update Z positions
+        self.z_mocap_mm = [1000 * z for z in mesh_marker_pos[:, 2]]
 
-        # CENTER LOCATION FROM MOCAP (in mm)
-        Z_mocap_mm = 1000 * input_array[2::3]  # original array is in meters
+    def start_server(self, host: str = '0.0.0.0', port: int = 9999) -> None:
+        """Start the TCP server."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind((host, port))
+            s.listen()
+            s.settimeout(0.1)
+            print(f"Server listening on port {port}")
 
-def my_parse_args(arg_list, args_dict):
-    # set up base values
-    arg_list_len = len(arg_list)
-    if arg_list_len > 1:
-        args_dict["serverAddress"] = arg_list[1]
-        if arg_list_len > 2:
-            args_dict["clientAddress"] = arg_list[2]
-        if arg_list_len > 3:
-            if len(arg_list[3]):
-                args_dict["use_multicast"] = True
-                if arg_list[3][0].upper() == "U":
-                    args_dict["use_multicast"] = False
-
-    return args_dict
+            while True:
+                try:
+                    conn, addr = s.accept()
+                    print(f"Accepted connection from {addr}")
+                    self.handle_client(conn, addr)
+                except socket.timeout:
+                    continue
+                except KeyboardInterrupt:
+                    print("Server is shutting down.")
+                    break
 
 def main():
-    optionsDict = {}
-    optionsDict["clientAddress"] = "127.0.0.1"
-    optionsDict["serverAddress"] = "127.0.0.1"
-    optionsDict["use_multicast"] = False
+    # Parse command line arguments
+    options = {
+        "clientAddress": "127.0.0.1",
+        "serverAddress": "127.0.0.1",
+        "use_multicast": False
+    }
+    
+    if len(sys.argv) > 1:
+        options["serverAddress"] = sys.argv[1]
+        if len(sys.argv) > 2:
+            options["clientAddress"] = sys.argv[2]
+            if len(sys.argv) > 3 and sys.argv[3]:
+                options["use_multicast"] = sys.argv[3][0].upper() != "U"
 
-    # Parse any command-line arguments
-    optionsDict = my_parse_args(sys.argv, optionsDict)
-
-    # Create a new NatNet client
+    # Initialize NatNet client
     streaming_client = NatNetClient()
     streaming_client.set_nat_net_version(4, 1)
-    streaming_client.set_client_address(optionsDict["clientAddress"])
-    streaming_client.set_server_address(optionsDict["serverAddress"])
-    streaming_client.set_use_multicast(optionsDict["use_multicast"])
-    streaming_client.set_print_level(0)  # disables prints
+    streaming_client.set_client_address(options["clientAddress"])
+    streaming_client.set_server_address(options["serverAddress"])
+    streaming_client.set_use_multicast(options["use_multicast"])
+    streaming_client.set_print_level(0)
 
-    # Set callbacks
-    streaming_client.labeled_marker_listener = receive_labeled_marker
+    # Create and initialize MocapServer
+    mocap_server = MocapServer()
+    streaming_client.labeled_marker_listener = mocap_server.receive_labeled_marker
 
-    is_running = streaming_client.run()
-    if not is_running:
+    if not streaming_client.run():
         print("ERROR: Could not start streaming client.")
         sys.exit(1)
 
-    HOST = '0.0.0.0'    # Listen on all network interfaces
-    PORT = 9999         # Arbitrary non-privileged port
-
     try:
-        # This call blocks until KeyboardInterrupt
-        start_server(HOST, PORT)
+        mocap_server.start_server()
     except KeyboardInterrupt:
         print("Main thread caught KeyboardInterrupt, shutting down server...")
-
-    # Cleanly shut down the streaming client
-    streaming_client.shutdown()
-    sys.exit(0)
+    finally:
+        streaming_client.shutdown()
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()
