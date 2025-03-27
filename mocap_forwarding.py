@@ -153,7 +153,8 @@ def main():
     options = {
         "clientAddress": "127.0.0.1",
         "serverAddress": "127.0.0.1",
-        "use_multicast": False
+        "use_multicast": False,
+        "enable_visualization": True  # New parameter to enable/disable visualization
     }
     
     if len(sys.argv) > 1:
@@ -162,6 +163,8 @@ def main():
             options["clientAddress"] = sys.argv[2]
             if len(sys.argv) > 3 and sys.argv[3]:
                 options["use_multicast"] = sys.argv[3][0].upper() != "U"
+            if len(sys.argv) > 4:
+                options["enable_visualization"] = sys.argv[4].lower() != "false"
 
     # Initialize NatNet client
     streaming_client = NatNetClient()
@@ -175,15 +178,28 @@ def main():
     mocap_server = MocapServer()
     streaming_client.labeled_marker_listener = mocap_server.receive_labeled_marker
 
+    # Start the NatNet client
     if not streaming_client.run():
         print("ERROR: Could not start streaming client.")
         sys.exit(1)
+    
+    # Initialize and start the visualizer if enabled
+    visualizer = None
+    if options["enable_visualization"]:
+        from mocap_visualizer import MocapVisualizer
+        visualizer = MocapVisualizer(mocap_server)
+        visualizer.start()
+        print("3D visualization started")
 
+    # Start the server
     try:
         mocap_server.start_server()
     except KeyboardInterrupt:
         print("Main thread caught KeyboardInterrupt, shutting down server...")
     finally:
+        # Clean shutdown
+        if visualizer:
+            visualizer.stop()
         streaming_client.shutdown()
         sys.exit(0)
 
