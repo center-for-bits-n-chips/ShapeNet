@@ -1,117 +1,13 @@
-import threading
-import time
 import numpy as np
+import time
 import multiprocessing
 from multiprocessing import Process, Queue
-import matplotlib
-# Force matplotlib to use a specific backend before any other imports
-matplotlib.use('Qt5Agg')  # Use Qt5 backend for interactive plotting
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
-from mpl_toolkits.mplot3d import Axes3D
+import threading
+import pyqtgraph as pg
+import pyqtgraph.opengl as gl
+from pyqtgraph.Qt import QtCore, QtGui
 
-def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
-    """
-    Separate process function for visualization
-    
-    Args:
-        data_queue: Queue for receiving visualization data
-        config_num_mesh_markers: Number of mesh markers
-        update_rate: Update rate in Hz
-    """
-    # Initialize the figure and axes
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d')
-    
-    # Set labels and title
-    ax.set_xlabel('Y')
-    ax.set_ylabel('Z')
-    ax.set_zlabel('X')
-    ax.set_title('Motion Capture Visualization')
-    
-    # Initialize data structures
-    mesh_marker_pos_vis = np.zeros((config_num_mesh_markers, 3))
-    rim_marker_pos_vis = np.zeros((3, 3))
-    circle_points = np.zeros((100, 3))
-    
-    # Create scatter plots for mesh and rim markers
-    mesh_scatter = ax.scatter([], [], [], c='b', marker='o', s=50, label='Mesh Markers')
-    rim_scatter = ax.scatter([], [], [], c='r', marker='s', s=100, label='Rim Markers')
-    
-    # Create line for circle
-    circle_line, = ax.plot([], [], [], 'g-', linewidth=2, label='Calculated Rim')
-    
-    # Set initial view limits
-    ax.set_xlim([-0.5, 0.5])
-    ax.set_ylim([-0.5, 0.5])
-    ax.set_zlim([-0.5, 0.5])
-    
-    # Add legend
-    ax.legend()
-    
-    def update_plot(frame):
-        nonlocal mesh_marker_pos_vis, rim_marker_pos_vis, circle_points
-        
-        # Check for new data
-        try:
-            while not data_queue.empty():
-                data = data_queue.get_nowait()
-                mesh_marker_pos_vis = data['mesh']
-                rim_marker_pos_vis = data['rim']
-                circle_points = data['circle']
-        except Exception as e:
-            print(f"Error getting data from queue: {e}")
-        
-        # Update mesh markers
-        if len(mesh_marker_pos_vis) > 0:
-            mesh_scatter._offsets3d = (
-                mesh_marker_pos_vis[:, 0],
-                mesh_marker_pos_vis[:, 1],
-                mesh_marker_pos_vis[:, 2]
-            )
-        
-        # Update rim markers
-        rim_scatter._offsets3d = (
-            rim_marker_pos_vis[:, 0],
-            rim_marker_pos_vis[:, 1],
-            rim_marker_pos_vis[:, 2]
-        )
-        
-        # Update circle
-        circle_line.set_data(circle_points[:, 0], circle_points[:, 1])
-        circle_line.set_3d_properties(circle_points[:, 2])
-        
-        # Auto-adjust axes limits if we have data
-        if np.any(mesh_marker_pos_vis) or np.any(rim_marker_pos_vis):
-            all_points = np.vstack([mesh_marker_pos_vis, rim_marker_pos_vis, circle_points])
-            max_range = np.max([
-                np.max(all_points[:, 0]) - np.min(all_points[:, 0]),
-                np.max(all_points[:, 1]) - np.min(all_points[:, 1]),
-                np.max(all_points[:, 2]) - np.min(all_points[:, 2])
-            ])
-            mid_x = (np.max(all_points[:, 0]) + np.min(all_points[:, 0])) / 2
-            mid_y = (np.max(all_points[:, 1]) + np.min(all_points[:, 1])) / 2
-            mid_z = (np.max(all_points[:, 2]) + np.min(all_points[:, 2])) / 2
-            
-            ax.set_xlim(mid_x - max_range/2, mid_x + max_range/2)
-            ax.set_ylim(mid_y - max_range/2, mid_y + max_range/2)
-            ax.set_zlim(mid_z - max_range/2, mid_z + max_range/2)
-        
-        return mesh_scatter, rim_scatter, circle_line
-    
-    # Create the animation
-    ani = FuncAnimation(
-        fig, update_plot, 
-        frames=None,
-        interval=1000/update_rate,
-        blit=True
-    )
-    
-    # Show the plot (this will block until the window is closed)
-    plt.show()
-
-
-class MocapVisualizer:
+class HighPerformanceVisualizer:
     def __init__(self, mocap_server, update_rate=30):
         """
         Initialize the visualizer with a reference to the mocap server
@@ -200,7 +96,7 @@ class MocapVisualizer:
             
             # Sleep to maintain update rate
             time.sleep(1.0 / self.update_rate)
-    
+
     def start(self):
         """Start the visualization process and data collection thread"""
         if not self.running:
@@ -222,7 +118,7 @@ class MocapVisualizer:
             self.collector_thread.daemon = True
             self.collector_thread.start()
             
-            print("Visualization started in separate process")
+            print("High-performance visualization started in separate process")
     
     def stop(self):
         """Stop the visualization process and data collection thread"""
@@ -250,8 +146,100 @@ class MocapVisualizer:
             
             print("Visualization stopped")
 
+
+def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
+    """
+    Separate process function for visualization using PyQtGraph
+    
+    Args:
+        data_queue: Queue for receiving visualization data
+        config_num_mesh_markers: Number of mesh markers
+        update_rate: Update rate in Hz
+    """
+    # Enable anti-aliasing for prettier plots
+    pg.setConfigOptions(antialias=True)
+    
+    # Create the application
+    app = pg.mkQApp("MoCap Visualization")
+    
+    # Create the 3D visualization window
+    window = gl.GLViewWidget()
+    window.setWindowTitle('MoCap Visualization')
+    window.setCameraPosition(distance=2, elevation=30, azimuth=45)
+    window.show()
+    
+    # Add a grid
+    grid = gl.GLGridItem()
+    grid.setSize(2, 2)
+    grid.setSpacing(0.1, 0.1)
+    window.addItem(grid)
+    
+    # Add axes
+    axis = gl.GLAxisItem()
+    axis.setSize(0.5, 0.5, 0.5)
+    window.addItem(axis)
+    
+    # Create empty scatter plot items for mesh and rim markers
+    mesh_scatter = gl.GLScatterPlotItem(
+        pos=np.zeros((config_num_mesh_markers, 3)),
+        color=(0, 0, 1, 1),
+        size=10,
+        pxMode=True
+    )
+    window.addItem(mesh_scatter)
+    
+    rim_scatter = gl.GLScatterPlotItem(
+        pos=np.zeros((3, 3)),
+        color=(1, 0, 0, 1),
+        size=15,
+        pxMode=True
+    )
+    window.addItem(rim_scatter)
+    
+    # Create line for circle
+    circle_line = gl.GLLinePlotItem(
+        pos=np.zeros((100, 3)),
+        color=(0, 1, 0, 1),
+        width=2,
+        mode='line_strip'
+    )
+    window.addItem(circle_line)
+    
+    # Create a timer for updates
+    timer = QtCore.QTimer()
+    
+    # Set up update function
+    def update():
+        # Check for new data
+        try:
+            while not data_queue.empty():
+                data = data_queue.get_nowait()
+                mesh_pos = data['mesh']
+                rim_pos = data['rim']
+                circle_points = data['circle']
+                
+                # Update the visualizations
+                if len(mesh_pos) > 0:
+                    mesh_scatter.setData(pos=mesh_pos)
+                
+                rim_scatter.setData(pos=rim_pos)
+                circle_line.setData(pos=circle_points)
+                
+                # Auto-adjust camera if needed
+                # (PyQtGraph's auto range in 3D is not as straightforward as in Matplotlib)
+        except Exception as e:
+            print(f"Error in visualization update: {e}")
+    
+    # Connect timer to update function
+    timer.timeout.connect(update)
+    timer.start(1000 / update_rate)  # interval in milliseconds
+    
+    # Start the Qt application event loop
+    pg.exec()
+
+
 # Example usage:
-# visualizer = MocapVisualizer(mocap_server)
+# visualizer = HighPerformanceVisualizer(mocap_server)
 # visualizer.start()
 # ...
 # visualizer.stop()  # When shutting down
