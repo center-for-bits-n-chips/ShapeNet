@@ -1,11 +1,115 @@
 import threading
 import time
 import numpy as np
+import multiprocessing
+from multiprocessing import Process, Queue
+import matplotlib
+# Force matplotlib to use a specific backend before any other imports
+matplotlib.use('Qt5Agg')  # Use Qt5 backend for interactive plotting
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from mpl_toolkits.mplot3d import Axes3D
-import matplotlib
-matplotlib.use('Qt5Agg')  # Use Qt5 backend for interactive plotting
+
+def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
+    """
+    Separate process function for visualization
+    
+    Args:
+        data_queue: Queue for receiving visualization data
+        config_num_mesh_markers: Number of mesh markers
+        update_rate: Update rate in Hz
+    """
+    # Initialize the figure and axes
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Set labels and title
+    ax.set_xlabel('Y')
+    ax.set_ylabel('Z')
+    ax.set_zlabel('X')
+    ax.set_title('Motion Capture Visualization')
+    
+    # Initialize data structures
+    mesh_marker_pos_vis = np.zeros((config_num_mesh_markers, 3))
+    rim_marker_pos_vis = np.zeros((3, 3))
+    circle_points = np.zeros((100, 3))
+    
+    # Create scatter plots for mesh and rim markers
+    mesh_scatter = ax.scatter([], [], [], c='b', marker='o', s=50, label='Mesh Markers')
+    rim_scatter = ax.scatter([], [], [], c='r', marker='s', s=100, label='Rim Markers')
+    
+    # Create line for circle
+    circle_line, = ax.plot([], [], [], 'g-', linewidth=2, label='Calculated Rim')
+    
+    # Set initial view limits
+    ax.set_xlim([-0.5, 0.5])
+    ax.set_ylim([-0.5, 0.5])
+    ax.set_zlim([-0.5, 0.5])
+    
+    # Add legend
+    ax.legend()
+    
+    def update_plot(frame):
+        nonlocal mesh_marker_pos_vis, rim_marker_pos_vis, circle_points
+        
+        # Check for new data
+        try:
+            while not data_queue.empty():
+                data = data_queue.get_nowait()
+                mesh_marker_pos_vis = data['mesh']
+                rim_marker_pos_vis = data['rim']
+                circle_points = data['circle']
+        except Exception as e:
+            print(f"Error getting data from queue: {e}")
+        
+        # Update mesh markers
+        if len(mesh_marker_pos_vis) > 0:
+            mesh_scatter._offsets3d = (
+                mesh_marker_pos_vis[:, 0],
+                mesh_marker_pos_vis[:, 1],
+                mesh_marker_pos_vis[:, 2]
+            )
+        
+        # Update rim markers
+        rim_scatter._offsets3d = (
+            rim_marker_pos_vis[:, 0],
+            rim_marker_pos_vis[:, 1],
+            rim_marker_pos_vis[:, 2]
+        )
+        
+        # Update circle
+        circle_line.set_data(circle_points[:, 0], circle_points[:, 1])
+        circle_line.set_3d_properties(circle_points[:, 2])
+        
+        # Auto-adjust axes limits if we have data
+        if np.any(mesh_marker_pos_vis) or np.any(rim_marker_pos_vis):
+            all_points = np.vstack([mesh_marker_pos_vis, rim_marker_pos_vis, circle_points])
+            max_range = np.max([
+                np.max(all_points[:, 0]) - np.min(all_points[:, 0]),
+                np.max(all_points[:, 1]) - np.min(all_points[:, 1]),
+                np.max(all_points[:, 2]) - np.min(all_points[:, 2])
+            ])
+            mid_x = (np.max(all_points[:, 0]) + np.min(all_points[:, 0])) / 2
+            mid_y = (np.max(all_points[:, 1]) + np.min(all_points[:, 1])) / 2
+            mid_z = (np.max(all_points[:, 2]) + np.min(all_points[:, 2])) / 2
+            
+            ax.set_xlim(mid_x - max_range/2, mid_x + max_range/2)
+            ax.set_ylim(mid_y - max_range/2, mid_y + max_range/2)
+            ax.set_zlim(mid_z - max_range/2, mid_z + max_range/2)
+        
+        return mesh_scatter, rim_scatter, circle_line
+    
+    # Create the animation
+    ani = FuncAnimation(
+        fig, update_plot, 
+        frames=None,
+        interval=1000/update_rate,
+        blit=True
+    )
+    
+    # Show the plot (this will block until the window is closed)
+    plt.show()
+
 
 class MocapVisualizer:
     def __init__(self, mocap_server, update_rate=30):
@@ -19,21 +123,16 @@ class MocapVisualizer:
         self.mocap_server = mocap_server
         self.update_rate = update_rate
         self.running = False
-        self.thread = None
-        
-        # Initialize the figure and axes
-        self.fig = plt.figure(figsize=(10, 8))
-        self.ax = self.fig.add_subplot(111, projection='3d')
-        self.mesh_scatter = None
-        self.rim_scatter = None
-        self.circle_line = None
+        self.process = None
+        self.data_queue = None
         
         # Initialize data structures
         self.mesh_marker_pos_vis = np.zeros((mocap_server.config.num_mesh_markers, 3))
         self.rim_marker_pos_vis = np.zeros((3, 3))
         self.circle_points = np.zeros((100, 3))
         
-        # Lock for thread-safe data access
+        # Thread for data collection
+        self.collector_thread = None
         self.data_lock = threading.Lock()
     
     def update_visualization_data(self):
@@ -79,103 +178,84 @@ class MocapVisualizer:
                     
                     self.circle_points = circle_points
     
-    def init_plot(self):
-        """Initialize the 3D plot elements"""
-        self.ax.set_xlabel('Y')
-        self.ax.set_ylabel('Z')
-        self.ax.set_zlabel('X')
-        self.ax.set_title('Motion Capture Visualization')
-        
-        # Create scatter plots for mesh and rim markers
-        self.mesh_scatter = self.ax.scatter([], [], [], c='b', marker='o', s=50, label='Mesh Markers')
-        self.rim_scatter = self.ax.scatter([], [], [], c='r', marker='s', s=100, label='Rim Markers')
-        
-        # Create line for circle
-        self.circle_line, = self.ax.plot([], [], [], 'g-', linewidth=2, label='Calculated Rim')
-        
-        # Add legend
-        self.ax.legend()
-        
-        # Set initial view limits
-        self.ax.set_xlim([-0.5, 0.5])
-        self.ax.set_ylim([-0.5, 0.5])
-        self.ax.set_zlim([-0.5, 0.5])
-        
-        return self.mesh_scatter, self.rim_scatter, self.circle_line
+    def data_collection_thread(self):
+        """Thread function to collect data and send to visualization process"""
+        while self.running:
+            self.update_visualization_data()
+            
+            # Package data to send to the visualization process
+            with self.data_lock:
+                data_package = {
+                    'mesh': self.mesh_marker_pos_vis.copy(),
+                    'rim': self.rim_marker_pos_vis.copy(),
+                    'circle': self.circle_points.copy()
+                }
+            
+            # Send data to visualization process if queue isn't full
+            try:
+                if not self.data_queue.full():
+                    self.data_queue.put_nowait(data_package)
+            except:
+                pass
+            
+            # Sleep to maintain update rate
+            time.sleep(1.0 / self.update_rate)
     
-    def update_plot(self, frame):
-        """Update function for animation"""
-        self.update_visualization_data()
-        
-        with self.data_lock:
-            # Update mesh markers
-            if len(self.mesh_marker_pos_vis) > 0:
-                self.mesh_scatter._offsets3d = (
-                    self.mesh_marker_pos_vis[:, 0],
-                    self.mesh_marker_pos_vis[:, 1],
-                    self.mesh_marker_pos_vis[:, 2]
-                )
-            
-            # Update rim markers
-            self.rim_scatter._offsets3d = (
-                self.rim_marker_pos_vis[:, 0],
-                self.rim_marker_pos_vis[:, 1],
-                self.rim_marker_pos_vis[:, 2]
-            )
-            
-            # Update circle
-            self.circle_line.set_data(self.circle_points[:, 0], self.circle_points[:, 1])
-            self.circle_line.set_3d_properties(self.circle_points[:, 2])
-            
-            # Auto-adjust axes limits if we have data
-            if np.any(self.mesh_marker_pos_vis) or np.any(self.rim_marker_pos_vis):
-                all_points = np.vstack([self.mesh_marker_pos_vis, self.rim_marker_pos_vis, self.circle_points])
-                max_range = np.max([
-                    np.max(all_points[:, 0]) - np.min(all_points[:, 0]),
-                    np.max(all_points[:, 1]) - np.min(all_points[:, 1]),
-                    np.max(all_points[:, 2]) - np.min(all_points[:, 2])
-                ])
-                mid_x = (np.max(all_points[:, 0]) + np.min(all_points[:, 0])) / 2
-                mid_y = (np.max(all_points[:, 1]) + np.min(all_points[:, 1])) / 2
-                mid_z = (np.max(all_points[:, 2]) + np.min(all_points[:, 2])) / 2
-                
-                self.ax.set_xlim(mid_x - max_range/2, mid_x + max_range/2)
-                self.ax.set_ylim(mid_y - max_range/2, mid_y + max_range/2)
-                self.ax.set_zlim(mid_z - max_range/2, mid_z + max_range/2)
-        
-        return self.mesh_scatter, self.rim_scatter, self.circle_line
-    
-    def visualization_loop(self):
-        """Main loop for the visualization thread"""
-        self.init_plot()
-        ani = FuncAnimation(
-            self.fig, self.update_plot, 
-            frames=None, 
-            init_func=self.init_plot,
-            interval=1000/self.update_rate,  # interval in milliseconds
-            blit=True
-        )
-        plt.show()
-        
     def start(self):
-        """Start the visualization thread"""
+        """Start the visualization process and data collection thread"""
         if not self.running:
             self.running = True
-            self.thread = threading.Thread(target=self.visualization_loop)
-            self.thread.daemon = True  # Thread will exit when main program exits
-            self.thread.start()
-            print("Visualization thread started")
+            
+            # Create a queue for communication between the main process and visualization process
+            self.data_queue = multiprocessing.Queue(maxsize=10)  # Limit queue size to prevent memory issues
+            
+            # Start the visualization process
+            self.process = Process(
+                target=visualization_process,
+                args=(self.data_queue, self.mocap_server.config.num_mesh_markers, self.update_rate)
+            )
+            self.process.daemon = True  # Process will exit when main program exits
+            self.process.start()
+            
+            # Start the data collection thread
+            self.collector_thread = threading.Thread(target=self.data_collection_thread)
+            self.collector_thread.daemon = True
+            self.collector_thread.start()
+            
+            print("Visualization started in separate process")
     
     def stop(self):
-        """Stop the visualization thread"""
+        """Stop the visualization process and data collection thread"""
         if self.running:
             self.running = False
-            if self.thread:
-                self.thread.join(timeout=1.0)
-                print("Visualization thread stopped")
+            
+            # Stop the data collection thread
+            if self.collector_thread:
+                self.collector_thread.join(timeout=1.0)
+            
+            # Close the visualization process
+            if self.process and self.process.is_alive():
+                # Give it a moment to clean up
+                time.sleep(0.5)
+                self.process.terminate()
+                self.process.join(timeout=1.0)
+            
+            # Clean up the queue
+            if self.data_queue:
+                while not self.data_queue.empty():
+                    try:
+                        self.data_queue.get_nowait()
+                    except:
+                        pass
+            
+            print("Visualization stopped")
 
 # Example usage:
 # visualizer = MocapVisualizer(mocap_server)
 # visualizer.start()
 # ...
 # visualizer.stop()  # When shutting down
+
+if __name__ == "__main__":
+    # This allows the file to be run directly for testing
+    print("This module is meant to be imported, not run directly.")
