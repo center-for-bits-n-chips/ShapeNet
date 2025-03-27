@@ -1,0 +1,14 @@
+name: mocap-env
+channels:
+  - conda-forge
+  - pytorch
+  - defaults
+dependencies:
+  - python=3.9
+  - numpy
+  - matplotlib
+  - pytorch
+  - torchvision
+  - pyqt=5.15
+  - pyqtgraph=0.13.3
+  - pyopengl

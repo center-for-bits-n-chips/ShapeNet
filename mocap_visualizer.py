@@ -7,7 +7,7 @@ import pyqtgraph as pg
 import pyqtgraph.opengl as gl
 from pyqtgraph.Qt import QtCore, QtGui
 
-class HighPerformanceVisualizer:
+class MoCapVisualizer:
     def __init__(self, mocap_server, update_rate=30):
         """
         Initialize the visualizer with a reference to the mocap server
@@ -232,7 +232,7 @@ def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
     
     # Connect timer to update function
     timer.timeout.connect(update)
-    timer.start(1000 / update_rate)  # interval in milliseconds
+    timer.start(int(1000 / update_rate))  # interval in milliseconds
     
     # Start the Qt application event loop
     pg.exec()

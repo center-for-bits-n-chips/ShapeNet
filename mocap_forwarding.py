@@ -154,8 +154,7 @@ def main():
         "clientAddress": "127.0.0.1",
         "serverAddress": "127.0.0.1",
         "use_multicast": False,
-        "enable_visualization": True,  # New parameter to enable/disable visualization
-        "high_performance": True      # Use high-performance visualization
+        "enable_visualization": True  # New parameter to enable/disable visualization
     }
     
     if len(sys.argv) > 1:
@@ -166,8 +165,6 @@ def main():
                 options["use_multicast"] = sys.argv[3][0].upper() != "U"
             if len(sys.argv) > 4:
                 options["enable_visualization"] = sys.argv[4].lower() != "false"
-            if len(sys.argv) > 5:
-                options["high_performance"] = sys.argv[5].lower() != "false"
 
     # Initialize NatNet client
     streaming_client = NatNetClient()
@@ -189,18 +186,9 @@ def main():
     # Initialize and start the visualizer if enabled
     visualizer = None
     if options["enable_visualization"]:
-        if options["high_performance"]:
-            try:
-                from high_performance_visualizer import HighPerformanceVisualizer
-                visualizer = HighPerformanceVisualizer(mocap_server)
-                print("Using high-performance 3D visualization")
-            except ImportError:
-                print("High-performance visualization not available, falling back to standard")
-                from mocap_visualizer import MocapVisualizer
-                visualizer = MocapVisualizer(mocap_server)
-        else:
-            from mocap_visualizer import MocapVisualizer
-            visualizer = MocapVisualizer(mocap_server)
+        from mocap_visualizer import MoCapVisualizer
+        visualizer = MoCapVisualizer(mocap_server)
+        print("Using high-performance 3D visualization")
             
         visualizer.start()
         print("3D visualization started")
