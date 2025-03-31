@@ -18,21 +18,24 @@ class MocapConfig:
     z_axis: np.ndarray = np.array([0, 0, -1])
     center: np.ndarray = np.array([0, 0, 0])
     display_update_rate: float = 10.0  # Hz
+    tare: bool = True  # Whether to subtract the initial offset
 
 class MocapServer:
     def __init__(self, config: MocapConfig = MocapConfig()):
         self.config = config
-        self.z_mocap_mm = [0.0] * config.num_mesh_markers
         self.mesh_marker_positions: Dict[int, List[float]] = {}
         self.rim_marker_positions: Dict[int, List[float]] = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
         self.normal = np.array([0, 0, -1])
         self.center = np.array([0, 0, 0])
         self.radius = 250.0
         self.flag_calibrate = True
-        self.plane_normal = np.array([0, 0, -1])  # Initial plane normal
-        self.plane_centroid = np.array([0, 0, 0])  # New attribute for plane centroid
-        self.mesh_marker_pos = np.zeros((config.num_mesh_markers, 3))  # in meters
-        self.mesh_marker_pos_mm = np.zeros((config.num_mesh_markers, 3))  # in millimeters
+        self.plane_normal = np.array([0, 0, -1])
+        self.plane_centroid = np.array([0, 0, 0])
+        self.mesh_marker_pos = np.zeros((config.num_mesh_markers, 3))
+        self.mesh_marker_pos_mm = np.zeros((config.num_mesh_markers, 3))
+        self.mesh_marker_offset = np.zeros(config.num_mesh_markers)  # Store z-offsets
+        self.offset_samples = []  # Store samples for averaging
+        self.num_samples_needed = 10  # Number of samples to average
         self.display = DigitalDisplay(self, config.display_update_rate)
 
     def __del__(self):
@@ -79,7 +82,7 @@ class MocapServer:
         return center, radius, normal
 
     def initial_calibration(self) -> None:
-        """Calculate rim parameters from marker positions."""
+        """Calculate rim parameters and initial z-offsets from marker positions."""
         rim_marker_pos = list(self.rim_marker_positions.values())
         mesh_marker_pos = list(self.mesh_marker_positions.values())
         
@@ -90,57 +93,77 @@ class MocapServer:
         # Convert positions to numpy array
         points = np.array(mesh_marker_pos)
         
-        # Calculate centroid
-        self.plane_centroid = np.mean(points, axis=0)
+        # Store sample for offset calculation
+        if len(self.offset_samples) < self.num_samples_needed:
+            self.offset_samples.append(points.copy())
+            return  # Wait for more samples
         
-        # Form the matrix A of mean-centered points
-        A = points - self.plane_centroid
-        
-        # Calculate SVD
-        _, _, vh = np.linalg.svd(A)
-        
-        # Normal vector is the last right singular vector
-        normal = vh[-1]
-        
-        # Ensure normal points in negative z direction (consistent with setup)
-        if normal[2] > 0:
-            normal = -normal
+        # Calculate average position from samples
+        if len(self.offset_samples) == self.num_samples_needed:
+            avg_positions = np.mean(self.offset_samples, axis=0)
+            self.offset_samples = []  # Clear samples after calculating average
             
-        self.plane_normal = normal
-        print("\nBest Fit Plane Calculation Results:")
-        print(f"Plane Normal: [{normal[0]:.3f}, {normal[1]:.3f}, {normal[2]:.3f}]")
-        print(f"Plane Centroid [mm]: [{self.plane_centroid[0]*1000:.1f}, {self.plane_centroid[1]*1000:.1f}, {self.plane_centroid[2]*1000:.1f}]")
-        print("Finished Calculating Best Fit Plane\n")
+            # Calculate centroid from averaged positions
+            self.plane_centroid = np.mean(avg_positions, axis=0)
+            
+            # Form the matrix A of mean-centered points
+            A = avg_positions - self.plane_centroid
+            
+            # Calculate SVD
+            _, _, vh = np.linalg.svd(A)
+            
+            # Normal vector is the last right singular vector
+            normal = vh[-1]
+            
+            # Ensure normal points in negative z direction
+            if normal[2] > 0:
+                normal = -normal
+            
+            self.plane_normal = normal
+            
+            # Transform averaged positions to calculate offset
+            transformed_pos = avg_positions - self.plane_centroid
+            rotation_mat = self.rotation_matrix_from_vectors(self.plane_normal, self.config.z_axis)
+            transformed_pos = transformed_pos @ rotation_mat.T
+            
+            # Store z-positions as offset (in millimeters)
+            self.mesh_marker_offset = transformed_pos[:, 2] * 1000.0
+            
+            print("\nBest Fit Plane Calculation Results:")
+            print(f"Plane Normal: [{normal[0]:.3f}, {normal[1]:.3f}, {normal[2]:.3f}]")
+            print(f"Plane Centroid [mm]: [{self.plane_centroid[0]*1000:.1f}, {self.plane_centroid[1]*1000:.1f}, {self.plane_centroid[2]*1000:.1f}]")
+            print("Initial z-offsets [mm]:", [f"{offset:.1f}" for offset in self.mesh_marker_offset])
+            print("Finished Calculating Best Fit Plane\n")
 
-        # Now calculate rim parameters after rotating markers to align with plane
-        if not all(value != 0 for row in rim_marker_pos for value in row):
-            return
+            # Continue with rim calculation
+            if not all(value != 0 for row in rim_marker_pos for value in row):
+                return
             
-        # Convert rim markers to numpy array
-        rim_markers = np.array(rim_marker_pos)
-        
-        # Center the rim markers
-        rim_markers = rim_markers - self.plane_centroid
-        
-        # Calculate rotation matrix using plane normal
-        rotation_mat = self.rotation_matrix_from_vectors(self.plane_normal, self.config.z_axis)
-        
-        # Rotate rim markers
-        rim_markers = rim_markers @ rotation_mat.T
-        
-        # Calculate circle parameters in rotated space
-        p1, p2, p3 = rim_markers
-        self.center, self.radius, self.normal = self.compute_circumradius(p1, p2, p3)
-        
-        # Convert center and radius to millimeters
-        center_mm = self.center * 1000
-        radius_mm = self.radius * 1000
-        print("\nRim Calculation Results:")
-        print(f"Center [mm]: [{center_mm[0]:.1f}, {center_mm[1]:.1f}, {center_mm[2]:.1f}]")
-        print(f"Radius [mm]: {radius_mm:.1f}")
-        print(f"Normal: [{self.normal[0]:.3f}, {self.normal[1]:.3f}, {self.normal[2]:.3f}]")
-        self.flag_calibrate = False
-        print("Finished Calculating Rim\n")
+            # Convert rim markers to numpy array
+            rim_markers = np.array(rim_marker_pos)
+            
+            # Center the rim markers
+            rim_markers = rim_markers - self.plane_centroid
+            
+            # Calculate rotation matrix using plane normal
+            rotation_mat = self.rotation_matrix_from_vectors(self.plane_normal, self.config.z_axis)
+            
+            # Rotate rim markers
+            rim_markers = rim_markers @ rotation_mat.T
+            
+            # Calculate circle parameters in rotated space
+            p1, p2, p3 = rim_markers
+            self.center, self.radius, self.normal = self.compute_circumradius(p1, p2, p3)
+            
+            # Convert center and radius to millimeters
+            center_mm = self.center * 1000
+            radius_mm = self.radius * 1000
+            print("\nRim Calculation Results:")
+            print(f"Center [mm]: [{center_mm[0]:.1f}, {center_mm[1]:.1f}, {center_mm[2]:.1f}]")
+            print(f"Radius [mm]: {radius_mm:.1f}")
+            print(f"Normal: [{self.normal[0]:.3f}, {self.normal[1]:.3f}, {self.normal[2]:.3f}]")
+            self.flag_calibrate = False
+            print("Finished Calculating Rim\n")
 
     def transform_marker_positions(self) -> None:
         """Transform marker positions based on rim parameters and best fit plane."""
@@ -249,7 +272,8 @@ def main():
         "serverAddress": "127.0.0.1",
         "use_multicast": False,
         "enable_visualization": True,
-        "enable_display": True,  # New parameter to enable/disable digital display
+        "enable_display": True,
+        "tare": True,  # Default to true
         "z_scale": 1.0  # Scale factor for z-direction visualization
     }
     
@@ -258,7 +282,13 @@ def main():
     if len(sys.argv) > 2:
         options["enable_display"] = sys.argv[2].lower() != "false"
     if len(sys.argv) > 3:
-        options["z_scale"] = float(sys.argv[3])
+        options["tare"] = sys.argv[3].lower() != "false"
+    if len(sys.argv) > 4:
+        options["z_scale"] = float(sys.argv[4])
+
+    # Create config with tare option
+    config = MocapConfig(tare=options["tare"])
+    mocap_server = MocapServer(config)
 
     # Initialize NatNet client
     streaming_client = NatNetClient()
@@ -268,8 +298,6 @@ def main():
     streaming_client.set_use_multicast(options["use_multicast"])
     streaming_client.set_print_level(0)
 
-    # Create and initialize MocapServer
-    mocap_server = MocapServer()
     streaming_client.labeled_marker_listener = mocap_server.receive_labeled_marker
 
     # Start the NatNet client
