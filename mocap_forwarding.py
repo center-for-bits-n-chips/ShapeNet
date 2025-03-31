@@ -89,6 +89,7 @@ class MocapServer:
         self.flag_calculate_plane = True  # New flag for plane calculation
         self.plane_normal = np.array([0, 0, -1])  # Initial plane normal
         self.plane_centroid = np.array([0, 0, 0])  # New attribute for plane centroid
+        self.mesh_marker_pos = np.zeros((config.num_mesh_markers, 3))  # Add transformed positions
         self.display = DigitalDisplay(self, config.display_update_rate)
 
     def __del__(self):
@@ -215,6 +216,11 @@ class MocapServer:
         
         # Rotate points
         mesh_marker_pos = mesh_marker_pos @ rotation_mat.T
+        # Translate x,y coordinates using center
+        mesh_marker_pos[:, :2] = mesh_marker_pos[:, :2] - self.center[:2]
+        
+        # Store transformed positions
+        self.mesh_marker_pos = mesh_marker_pos
         
         # Update Z positions and display
         self.z_mocap_mm = [1000 * z for z in mesh_marker_pos[:, 2]]
@@ -266,7 +272,7 @@ class MocapServer:
         if self.flag_calculate_rim:
             self.calculate_rim_parameters()
 
-        # Transform positions if both calculations are done
+        # Transform positions if calibration calculations are done
         if not self.flag_calculate_rim:
             self.transform_marker_positions()
 

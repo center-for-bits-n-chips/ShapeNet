@@ -35,10 +35,7 @@ class MoCapVisualizer:
         """Update the visualization data from the mocap server in a thread-safe manner"""
         with self.data_lock:
             # Use the already transformed mesh marker positions
-            if self.mocap_server.mesh_marker_positions:
-                mesh_marker_pos = list(self.mocap_server.mesh_marker_positions.values())
-                if len(mesh_marker_pos) == self.mocap_server.config.num_mesh_markers:
-                    self.mesh_marker_pos_vis = np.array(mesh_marker_pos)
+            self.mesh_marker_pos_vis = self.mocap_server.mesh_marker_pos.copy()
             
             # Create circle in XY plane (already in transformed space)
             theta = np.linspace(0, 2*np.pi, 100)
