@@ -5,6 +5,9 @@ import struct
 import numpy as np
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
+import os
+import time
+from threading import Thread, Event
 
 np.set_printoptions(linewidth=np.inf)
 
@@ -14,6 +17,61 @@ class MocapConfig:
     rim_z_offset: float = -0.01754  # MEASURED WITH CALIPERS
     z_axis: np.ndarray = np.array([0, 0, -1])
     center: np.ndarray = np.array([0, 0, 0])
+    display_update_rate: float = 10.0  # Hz
+
+class DigitalDisplay:
+    def __init__(self, mocap_server, update_rate: float = 10.0):
+        self.mocap_server = mocap_server
+        self.update_rate = update_rate
+        self.stop_event = Event()
+        self.display_thread = None
+        self.last_positions = None
+
+    def clear_screen(self):
+        os.system('cls' if os.name == 'nt' else 'clear')
+
+    def format_value(self, value: float) -> str:
+        return f"{value:6.2f}"
+
+    def display_positions(self):
+        """Display the current mesh marker positions in a formatted table."""
+        self.clear_screen()
+        print("\n=== Mesh Marker Positions (mm) ===")
+        print("Marker ID |    X    |    Y    |    Z    |")
+        print("-" * 40)
+        
+        if self.last_positions is None:
+            print("Waiting for marker data...")
+            return
+
+        for marker_id, pos in sorted(self.last_positions.items()):
+            print(f"{marker_id:8d} | {self.format_value(pos[0])} | {self.format_value(pos[1])} | {self.format_value(pos[2])} |")
+        
+        print("-" * 40)
+        print(f"Last update: {time.strftime('%H:%M:%S')}")
+        print("\nPress Ctrl+C to exit")
+
+    def update_loop(self):
+        """Main update loop for the display."""
+        while not self.stop_event.is_set():
+            self.display_positions()
+            time.sleep(1.0 / self.update_rate)
+
+    def start(self):
+        """Start the display thread."""
+        self.display_thread = Thread(target=self.update_loop)
+        self.display_thread.daemon = True
+        self.display_thread.start()
+
+    def stop(self):
+        """Stop the display thread."""
+        self.stop_event.set()
+        if self.display_thread:
+            self.display_thread.join()
+
+    def update_positions(self, positions: Dict[int, List[float]]):
+        """Update the stored positions."""
+        self.last_positions = positions
 
 class MocapServer:
     def __init__(self, config: MocapConfig = MocapConfig()):
@@ -24,6 +82,12 @@ class MocapServer:
         self.normal = np.array([0, 0, -1])
         self.center = np.array([0, 0, 0])
         self.flag_calculate_rim = True
+        self.display = DigitalDisplay(self, config.display_update_rate)
+
+    def __del__(self):
+        """Cleanup when the server is destroyed."""
+        if hasattr(self, 'display'):
+            self.display.stop()
 
     def rotation_matrix_from_vectors(self, a: np.ndarray, b: np.ndarray) -> np.ndarray:
         """Returns the rotation matrix that aligns vector a to b."""
@@ -128,6 +192,9 @@ class MocapServer:
 
         # Update Z positions
         self.z_mocap_mm = [1000 * z for z in mesh_marker_pos[:, 2]]
+        
+        # Update display with current positions
+        self.display.update_positions(dict(zip(range(len(mesh_marker_pos)), mesh_marker_pos)))
 
     def start_server(self, host: str = '0.0.0.0', port: int = 9999) -> None:
         """Start the TCP server."""
@@ -154,7 +221,8 @@ def main():
         "clientAddress": "127.0.0.1",
         "serverAddress": "127.0.0.1",
         "use_multicast": False,
-        "enable_visualization": True  # New parameter to enable/disable visualization
+        "enable_visualization": True,
+        "enable_display": True  # New parameter to enable/disable digital display
     }
     
     if len(sys.argv) > 1:
@@ -165,6 +233,8 @@ def main():
                 options["use_multicast"] = sys.argv[3][0].upper() != "U"
             if len(sys.argv) > 4:
                 options["enable_visualization"] = sys.argv[4].lower() != "false"
+            if len(sys.argv) > 5:
+                options["enable_display"] = sys.argv[5].lower() != "false"
 
     # Initialize NatNet client
     streaming_client = NatNetClient()
@@ -189,9 +259,13 @@ def main():
         from mocap_visualizer import MoCapVisualizer
         visualizer = MoCapVisualizer(mocap_server)
         print("Using high-performance 3D visualization")
-            
         visualizer.start()
         print("3D visualization started")
+
+    # Start the digital display if enabled
+    if options["enable_display"]:
+        mocap_server.display.start()
+        print("Digital display started")
 
     # Start the server
     try:
@@ -202,6 +276,7 @@ def main():
         # Clean shutdown
         if visualizer:
             visualizer.stop()
+        mocap_server.display.stop()
         streaming_client.shutdown()
         sys.exit(0)
 
