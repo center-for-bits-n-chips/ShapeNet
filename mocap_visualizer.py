@@ -34,49 +34,23 @@ class MoCapVisualizer:
     def update_visualization_data(self):
         """Update the visualization data from the mocap server in a thread-safe manner"""
         with self.data_lock:
-            # Deep copy the data to avoid issues with concurrent access
+            # Use the already transformed mesh marker positions
             if self.mocap_server.mesh_marker_positions:
                 mesh_marker_pos = list(self.mocap_server.mesh_marker_positions.values())
                 if len(mesh_marker_pos) == self.mocap_server.config.num_mesh_markers:
-                    # Apply the same transformations as in mocap_forwarding
-                    mesh_marker_pos = np.array(mesh_marker_pos)
-                    # First center on plane centroid
-                    mesh_marker_pos = mesh_marker_pos - self.mocap_server.plane_centroid
-                    # Rotate to align with z-axis using plane normal
-                    rotation_mat = self.mocap_server.rotation_matrix_from_vectors(
-                        self.mocap_server.plane_normal, 
-                        self.mocap_server.config.z_axis
-                    )
-                    mesh_marker_pos = mesh_marker_pos @ rotation_mat.T
-                    # Translate x,y coordinates using rim center
-                    mesh_marker_pos[:, :2] = mesh_marker_pos[:, :2] - self.mocap_server.center[:2]
-                    self.mesh_marker_pos_vis = mesh_marker_pos
+                    self.mesh_marker_pos_vis = np.array(mesh_marker_pos)
             
-            rim_marker_pos = list(self.mocap_server.rim_marker_positions.values())
-            if all(value != 0 for row in rim_marker_pos for value in row):
-                # Apply the same transformations to rim markers
-                rim_marker_pos = np.array(rim_marker_pos)
-                rim_marker_pos = rim_marker_pos - self.mocap_server.plane_centroid
-                rim_marker_pos = rim_marker_pos @ rotation_mat.T
-                rim_marker_pos[:, :2] = rim_marker_pos[:, :2] - self.mocap_server.center[:2]
-                self.rim_marker_pos_vis = rim_marker_pos
-                
-                # Calculate the circle points in the transformed space
-                center = np.array([0, 0, self.mocap_server.center[2]])  # Center should be at x,y=0 in transformed space
-                normal = np.array([0, 0, -1])  # Normal should be aligned with z-axis
-                
-                if not np.array_equal(normal, np.array([0, 0, 0])):
-                    # Create a circle in the XY plane
-                    theta = np.linspace(0, 2*np.pi, 100)
-                    radius = self.mocap_server.radius
-                    
-                    # Generate circle points directly in XY plane
-                    circle_points = np.zeros((100, 3))
-                    circle_points[:, 0] = radius * np.cos(theta)
-                    circle_points[:, 1] = radius * np.sin(theta)
-                    circle_points[:, 2] = center[2]
-                    
-                    self.circle_points = circle_points
+            # Create circle in XY plane (already in transformed space)
+            theta = np.linspace(0, 2*np.pi, 100)
+            radius = self.mocap_server.radius
+            
+            # Generate circle points
+            circle_points = np.zeros((100, 3))
+            circle_points[:, 0] = radius * np.cos(theta)
+            circle_points[:, 1] = radius * np.sin(theta)
+            circle_points[:, 2] = 0.0
+            
+            self.circle_points = circle_points
     
     def data_collection_thread(self):
         """Thread function to collect data and send to visualization process"""
@@ -154,19 +128,10 @@ class MoCapVisualizer:
 def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
     """
     Separate process function for visualization using PyQtGraph
-    
-    Args:
-        data_queue: Queue for receiving visualization data
-        config_num_mesh_markers: Number of mesh markers
-        update_rate: Update rate in Hz
     """
-    # Enable anti-aliasing for prettier plots
     pg.setConfigOptions(antialias=True)
-    
-    # Create the application
     app = pg.mkQApp("MoCap Visualization")
     
-    # Create the 3D visualization window
     window = gl.GLViewWidget()
     window.setWindowTitle('MoCap Visualization')
     window.setCameraPosition(distance=2, elevation=30, azimuth=45)
@@ -183,7 +148,7 @@ def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
     axis.setSize(0.5, 0.5, 0.5)
     window.addItem(axis)
     
-    # Create empty scatter plot items for mesh and rim markers
+    # Create empty scatter plot items for mesh markers
     mesh_scatter = gl.GLScatterPlotItem(
         pos=np.zeros((config_num_mesh_markers, 3)),
         color=(0, 0, 1, 1),
@@ -191,14 +156,6 @@ def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
         pxMode=True
     )
     window.addItem(mesh_scatter)
-    
-    rim_scatter = gl.GLScatterPlotItem(
-        pos=np.zeros((3, 3)),
-        color=(1, 0, 0, 1),
-        size=15,
-        pxMode=True
-    )
-    window.addItem(rim_scatter)
     
     # Create line for circle
     circle_line = gl.GLLinePlotItem(
@@ -212,33 +169,22 @@ def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
     # Create a timer for updates
     timer = QtCore.QTimer()
     
-    # Set up update function
     def update():
-        # Check for new data
         try:
             while not data_queue.empty():
                 data = data_queue.get_nowait()
                 mesh_pos = data['mesh']
-                rim_pos = data['rim']
                 circle_points = data['circle']
                 
-                # Update the visualizations
                 if len(mesh_pos) > 0:
                     mesh_scatter.setData(pos=mesh_pos)
-                
-                rim_scatter.setData(pos=rim_pos)
                 circle_line.setData(pos=circle_points)
-                
-                # Auto-adjust camera if needed
-                # (PyQtGraph's auto range in 3D is not as straightforward as in Matplotlib)
         except Exception as e:
             print(f"Error in visualization update: {e}")
     
-    # Connect timer to update function
     timer.timeout.connect(update)
-    timer.start(int(1000 / update_rate))  # interval in milliseconds
+    timer.start(int(1000 / update_rate))
     
-    # Start the Qt application event loop
     pg.exec()
 
 
