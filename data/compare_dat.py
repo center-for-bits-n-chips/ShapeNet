@@ -29,7 +29,7 @@ def calculate_spread(positions):
 def plot_comparison():
     # Read both datasets
     voltage1, mocap1 = read_labview_binary("2025-03-31 pull-in rim 1.dat")
-    voltage2, mocap2 = read_labview_binary("2025-03-31 pull-in rim 2.dat")
+    voltage2, mocap2 = read_labview_binary("2025-03-31 pull-in plane.dat")
 
     # Create figure
     plt.figure(figsize=(10, 8))
@@ -52,8 +52,8 @@ def plot_comparison():
     # Plot initial and final positions
     plt.plot(markers, initial_pos1, 'ro-', label='Rim 1 Initial', markersize=8)
     plt.plot(markers, final_pos1, 'ro--', label='Rim 1 Final', markersize=8)
-    plt.plot(markers, initial_pos2, 'bs-', label='Rim 2 Initial', markersize=8)
-    plt.plot(markers, final_pos2, 'bs--', label='Rim 2 Final', markersize=8)
+    plt.plot(markers, initial_pos2, 'bs-', label='Plane Initial', markersize=8)
+    plt.plot(markers, final_pos2, 'bs--', label='Plane Final', markersize=8)
     
     # Add displacement annotations
     for i in markers:
@@ -69,7 +69,7 @@ def plot_comparison():
     # Add spread information to title
     plt.title('Initial vs Final Positions\n' + 
               f'Rim 1 spread: {spread_initial1:.1f}→{spread_final1:.1f} mm\n' +
-              f'Rim 2 spread: {spread_initial2:.1f}→{spread_final2:.1f} mm')
+              f'Plane spread: {spread_initial2:.1f}→{spread_final2:.1f} mm')
     plt.xlabel('Marker Number')
     plt.ylabel('Position [mm]')
     plt.grid(True)
@@ -85,7 +85,7 @@ def plot_comparison():
     print(f"  Initial spread: {spread_initial1:.1f} mm")
     print(f"  Final spread: {spread_final1:.1f} mm")
     print(f"  Change in spread: {spread_final1 - spread_initial1:.1f} mm")
-    print(f"\nRim 2:")
+    print(f"\nPlane:")
     print(f"  Initial spread: {spread_initial2:.1f} mm")
     print(f"  Final spread: {spread_final2:.1f} mm")
     print(f"  Change in spread: {spread_final2 - spread_initial2:.1f} mm")

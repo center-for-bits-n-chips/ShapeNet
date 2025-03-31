@@ -38,39 +38,43 @@ class MoCapVisualizer:
             if self.mocap_server.mesh_marker_positions:
                 mesh_marker_pos = list(self.mocap_server.mesh_marker_positions.values())
                 if len(mesh_marker_pos) == self.mocap_server.config.num_mesh_markers:
-                    self.mesh_marker_pos_vis = np.array(mesh_marker_pos)
+                    # Apply the same transformations as in mocap_forwarding
+                    mesh_marker_pos = np.array(mesh_marker_pos)
+                    # First center on plane centroid
+                    mesh_marker_pos = mesh_marker_pos - self.mocap_server.plane_centroid
+                    # Rotate to align with z-axis using plane normal
+                    rotation_mat = self.mocap_server.rotation_matrix_from_vectors(
+                        self.mocap_server.plane_normal, 
+                        self.mocap_server.config.z_axis
+                    )
+                    mesh_marker_pos = mesh_marker_pos @ rotation_mat.T
+                    # Translate x,y coordinates using rim center
+                    mesh_marker_pos[:, :2] = mesh_marker_pos[:, :2] - self.mocap_server.center[:2]
+                    self.mesh_marker_pos_vis = mesh_marker_pos
             
             rim_marker_pos = list(self.mocap_server.rim_marker_positions.values())
             if all(value != 0 for row in rim_marker_pos for value in row):
-                self.rim_marker_pos_vis = np.array(rim_marker_pos)
+                # Apply the same transformations to rim markers
+                rim_marker_pos = np.array(rim_marker_pos)
+                rim_marker_pos = rim_marker_pos - self.mocap_server.plane_centroid
+                rim_marker_pos = rim_marker_pos @ rotation_mat.T
+                rim_marker_pos[:, :2] = rim_marker_pos[:, :2] - self.mocap_server.center[:2]
+                self.rim_marker_pos_vis = rim_marker_pos
                 
-                # Calculate the circle points for visualization
-                center = self.mocap_server.center
-                normal = self.mocap_server.normal
+                # Calculate the circle points in the transformed space
+                center = np.array([0, 0, self.mocap_server.center[2]])  # Center should be at x,y=0 in transformed space
+                normal = np.array([0, 0, -1])  # Normal should be aligned with z-axis
                 
                 if not np.array_equal(normal, np.array([0, 0, 0])):
-                    # Create a circle in the plane defined by the normal
-                    # First, find a vector perpendicular to the normal
-                    if np.abs(normal[0]) < np.abs(normal[1]):
-                        v1 = np.array([1, 0, 0])
-                    else:
-                        v1 = np.array([0, 1, 0])
-                    
-                    v1 = v1 - normal * np.dot(v1, normal)
-                    v1 = v1 / np.linalg.norm(v1)
-                    
-                    # Find a second perpendicular vector
-                    v2 = np.cross(normal, v1)
-                    v2 = v2 / np.linalg.norm(v2)
-                    
-                    # Calculate the radius as the distance from center to any rim marker
-                    radius = np.linalg.norm(self.rim_marker_pos_vis[0] - center)
-                    
-                    # Generate circle points
+                    # Create a circle in the XY plane
                     theta = np.linspace(0, 2*np.pi, 100)
+                    radius = self.mocap_server.radius
+                    
+                    # Generate circle points directly in XY plane
                     circle_points = np.zeros((100, 3))
-                    for i, angle in enumerate(theta):
-                        circle_points[i] = center + radius * (np.cos(angle) * v1 + np.sin(angle) * v2)
+                    circle_points[:, 0] = radius * np.cos(theta)
+                    circle_points[:, 1] = radius * np.sin(theta)
+                    circle_points[:, 2] = center[2]
                     
                     self.circle_points = circle_points
     
