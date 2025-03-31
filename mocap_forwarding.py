@@ -186,8 +186,11 @@ class MocapServer:
                         data = data[8:]
                     
                     # Send all marker positions in millimeters
-                    # Format: [x1, y1, z1, x2, y2, z2, ...]
-                    flat_positions = self.mesh_marker_pos_mm.flatten()
+                    # Format: [x1,x2,x3,..., y1,y2,y3,..., z1,z2,z3,...]
+                    x_values = self.mesh_marker_pos_mm[:, 0]
+                    y_values = self.mesh_marker_pos_mm[:, 1]
+                    z_values = self.mesh_marker_pos_mm[:, 2]
+                    flat_positions = np.concatenate([x_values, y_values, z_values])
                     format_string = '>' + 'd' * len(flat_positions)
                     conn.sendall(struct.pack(format_string, *flat_positions))
                     
