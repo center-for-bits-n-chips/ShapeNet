@@ -137,24 +137,9 @@ class MocapServer:
     def calculate_rim_parameters(self) -> None:
         """Calculate rim parameters from marker positions."""
         rim_marker_pos = list(self.rim_marker_positions.values())
-        if not all(value != 0 for row in rim_marker_pos for value in row):
-            return
-            
-        p1, p2, p3 = rim_marker_pos
-        self.center, self.radius, self.normal = self.compute_circumradius(p1, p2, p3)
-        # Convert center and radius to millimeters
-        center_mm = self.center * 1000
-        radius_mm = self.radius * 1000
-        print("\nRim Calculation Results:")
-        print(f"Center [mm]: [{center_mm[0]:.1f}, {center_mm[1]:.1f}, {center_mm[2]:.1f}]")
-        print(f"Radius [mm]: {radius_mm:.1f}")
-        print(f"Normal: [{self.normal[0]:.3f}, {self.normal[1]:.3f}, {self.normal[2]:.3f}]")
-        self.flag_calculate_rim = False
-        print("Finished Calculating Rim\n")
-
-    def calculate_best_fit_plane(self) -> None:
-        """Calculate the best fit plane from mesh marker positions."""
         mesh_marker_pos = list(self.mesh_marker_positions.values())
+        
+        # First calculate best fit plane from mesh markers
         if len(mesh_marker_pos) != self.config.num_mesh_markers:
             return
 
@@ -181,8 +166,36 @@ class MocapServer:
         print("\nBest Fit Plane Calculation Results:")
         print(f"Plane Normal: [{normal[0]:.3f}, {normal[1]:.3f}, {normal[2]:.3f}]")
         print(f"Plane Centroid [mm]: [{self.plane_centroid[0]*1000:.1f}, {self.plane_centroid[1]*1000:.1f}, {self.plane_centroid[2]*1000:.1f}]")
-        self.flag_calculate_plane = False
         print("Finished Calculating Best Fit Plane\n")
+
+        # Now calculate rim parameters after rotating markers to align with plane
+        if not all(value != 0 for row in rim_marker_pos for value in row):
+            return
+            
+        # Convert rim markers to numpy array
+        rim_markers = np.array(rim_marker_pos)
+        
+        # Center the rim markers
+        rim_markers = rim_markers - self.plane_centroid
+        
+        # Calculate rotation matrix using plane normal
+        rotation_mat = self.rotation_matrix_from_vectors(self.plane_normal, self.config.z_axis)
+        
+        # Rotate rim markers
+        rim_markers = rim_markers @ rotation_mat.T
+        
+        # Calculate circle parameters in rotated space
+        p1, p2, p3 = rim_markers
+        self.center, self.radius, _ = self.compute_circumradius(p1, p2, p3)
+        
+        # Convert center and radius to millimeters
+        center_mm = self.center * 1000
+        radius_mm = self.radius * 1000
+        print("\nRim Calculation Results:")
+        print(f"Center [mm]: [{center_mm[0]:.1f}, {center_mm[1]:.1f}, {center_mm[2]:.1f}]")
+        print(f"Radius [mm]: {radius_mm:.1f}")
+        self.flag_calculate_rim = False
+        print("Finished Calculating Rim\n")
 
     def transform_marker_positions(self) -> None:
         """Transform marker positions based on rim parameters and best fit plane."""
@@ -261,12 +274,8 @@ class MocapServer:
         if self.flag_calculate_rim:
             self.calculate_rim_parameters()
 
-        # Calculate best fit plane once
-        if self.flag_calculate_plane:
-            self.calculate_best_fit_plane()
-
         # Transform positions if both calculations are done
-        if not (self.flag_calculate_rim or self.flag_calculate_plane):
+        if not self.flag_calculate_rim:
             self.transform_marker_positions()
 
     def start_server(self, host: str = '0.0.0.0', port: int = 9999) -> None:
