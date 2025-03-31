@@ -24,11 +24,8 @@ class DigitalDisplay:
         self._clear_screen()
 
     def _clear_screen(self):
-        """Clear the screen using the appropriate method for the OS."""
-        if os.name == 'nt':  # Windows
-            os.system('cls')
-        else:  # Unix/Linux/MacOS
-            os.system('clear')
+        """Clear the screen using ANSI escape codes."""
+        print('\033[2J\033[H', end='')  # Clear screen and move cursor to home position
 
     def _get_display_lines(self):
         """Calculate the number of lines needed for the display."""
