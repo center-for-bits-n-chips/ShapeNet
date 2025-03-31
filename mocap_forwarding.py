@@ -302,13 +302,16 @@ def main():
         "serverAddress": "127.0.0.1",
         "use_multicast": False,
         "enable_visualization": True,
-        "enable_display": True  # New parameter to enable/disable digital display
+        "enable_display": True,  # New parameter to enable/disable digital display
+        "z_scale": 1.0  # Scale factor for z-direction visualization
     }
     
     if len(sys.argv) > 1:
         options["enable_visualization"] = sys.argv[1].lower() != "false"
     if len(sys.argv) > 2:
         options["enable_display"] = sys.argv[2].lower() != "false"
+    if len(sys.argv) > 3:
+        options["z_scale"] = float(sys.argv[3])
 
     # Initialize NatNet client
     streaming_client = NatNetClient()
@@ -331,9 +334,9 @@ def main():
     visualizer = None
     if options["enable_visualization"]:
         from mocap_visualizer import MoCapVisualizer
-        visualizer = MoCapVisualizer(mocap_server)
+        visualizer = MoCapVisualizer(mocap_server, z_scale=options["z_scale"])
         visualizer.start()
-        print("3D visualization started")
+        print(f"3D visualization started with z-scale: {options['z_scale']}")
 
     # Start the digital display if enabled
     if options["enable_display"]:

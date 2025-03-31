@@ -8,16 +8,18 @@ import pyqtgraph.opengl as gl
 from pyqtgraph.Qt import QtCore, QtGui
 
 class MoCapVisualizer:
-    def __init__(self, mocap_server, update_rate=30):
+    def __init__(self, mocap_server, update_rate=30, z_scale=1.0):
         """
         Initialize the visualizer with a reference to the mocap server
         
         Args:
             mocap_server: The MocapServer instance to visualize
             update_rate: Visualization update rate in Hz (default: 30)
+            z_scale: Scale factor for z-direction visualization (default: 1.0)
         """
         self.mocap_server = mocap_server
         self.update_rate = update_rate
+        self.z_scale = z_scale
         self.running = False
         self.process = None
         self.data_queue = None
@@ -34,8 +36,9 @@ class MoCapVisualizer:
     def update_visualization_data(self):
         """Update the visualization data from the mocap server in a thread-safe manner"""
         with self.data_lock:
-            # Use the already transformed mesh marker positions
+            # Use the already transformed mesh marker positions and apply z-scaling
             self.mesh_marker_pos_vis = self.mocap_server.mesh_marker_pos.copy()
+            self.mesh_marker_pos_vis[:, 2] *= self.z_scale
             
             # Create circle in XY plane (already in transformed space)
             theta = np.linspace(0, 2*np.pi, 100)
@@ -194,3 +197,5 @@ def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
 if __name__ == "__main__":
     # This allows the file to be run directly for testing
     print("This module is meant to be imported, not run directly.")
+
+visualizer = MoCapVisualizer(mocap_server, z_scale=2.0)  # Double the z-displacement
