@@ -197,5 +197,3 @@ def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
 if __name__ == "__main__":
     # This allows the file to be run directly for testing
     print("This module is meant to be imported, not run directly.")
-
-visualizer = MoCapVisualizer(mocap_server, z_scale=2.0)  # Double the z-displacement
