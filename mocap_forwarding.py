@@ -185,9 +185,13 @@ class MocapServer:
         # Translate x,y coordinates using center
         mesh_marker_pos[:, :2] = mesh_marker_pos[:, :2] - self.center[:2]
         
-        # Store transformed positions in meters and millimeters
+        # Store transformed positions in meters
         self.mesh_marker_pos = mesh_marker_pos
-        self.mesh_marker_pos_mm = mesh_marker_pos * 1000.0  # Convert to millimeters
+        
+        # Convert to millimeters and apply offset if taring is enabled
+        self.mesh_marker_pos_mm = mesh_marker_pos * 1000.0
+        if self.config.tare:
+            self.mesh_marker_pos_mm[:, 2] -= self.mesh_marker_offset
         
         self.display.update_positions(dict(zip(range(len(mesh_marker_pos)), self.mesh_marker_pos_mm)))
 
