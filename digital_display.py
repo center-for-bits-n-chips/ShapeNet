@@ -21,18 +21,23 @@ class DigitalDisplay:
          """Display the current mesh marker positions in a formatted table."""
          self.clear_screen()
          print("\n=== Mesh Marker Positions (mm) ===")
-         print("Marker ID |    X    |    Y    |    Z    |")
-         print("-" * 40)
+         print("Marker ID |    X    |    Y    |    Z    | Offset  |")
+         print("-" * 49)
          
          if self.last_positions is None:
              print("Waiting for marker data...")
              return
  
          for marker_id, pos in sorted(self.last_positions.items()):
-             print(f"{marker_id:8d} | {self.format_value(pos[0])} | {self.format_value(pos[1])} | {self.format_value(pos[2])} |")
+             offset = self.mocap_server.mesh_marker_offset[marker_id]
+             print(f"{marker_id:8d} | {self.format_value(pos[0])} | {self.format_value(pos[1])} | {self.format_value(pos[2])} | {self.format_value(offset)} |")
          
-         print("-" * 40)
+         print("-" * 49)
          print(f"Last update: {time.strftime('%H:%M:%S')}")
+         if self.mocap_server.config.tare:
+             print("Tare: ON")
+         else:
+             print("Tare: OFF")
          print("\nPress Ctrl+C to exit")
  
      def update_loop(self):
