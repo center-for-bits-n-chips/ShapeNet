@@ -14,7 +14,6 @@ np.set_printoptions(linewidth=np.inf)
 @dataclass
 class MocapConfig:
     num_mesh_markers: int = 8
-    rim_z_offset: float = -0.01754  # MEASURED WITH CALIPERS
     z_axis: np.ndarray = np.array([0, 0, -1])
     center: np.ndarray = np.array([0, 0, 0])
     display_update_rate: float = 10.0  # Hz
@@ -87,6 +86,8 @@ class MocapServer:
         self.center = np.array([0, 0, 0])
         self.radius_mm = 50.0
         self.flag_calculate_rim = True
+        self.flag_calculate_plane = True  # New flag for plane calculation
+        self.plane_normal = np.array([0, 0, -1])  # Initial plane normal
         self.display = DigitalDisplay(self, config.display_update_rate)
 
     def __del__(self):
@@ -150,22 +151,52 @@ class MocapServer:
         self.flag_calculate_rim = False
         print("Finished Calculating Rim\n")
 
+    def calculate_best_fit_plane(self) -> None:
+        """Calculate the best fit plane from mesh marker positions."""
+        mesh_marker_pos = list(self.mesh_marker_positions.values())
+        if len(mesh_marker_pos) != self.config.num_mesh_markers:
+            return
+
+        # Convert positions to numpy array
+        points = np.array(mesh_marker_pos)
+        
+        # Calculate centroid
+        centroid = np.mean(points, axis=0)
+        
+        # Form the matrix A of mean-centered points
+        A = points - centroid
+        
+        # Calculate SVD
+        _, _, vh = np.linalg.svd(A)
+        
+        # Normal vector is the last right singular vector
+        normal = vh[-1]
+        
+        # Ensure normal points in negative z direction (consistent with setup)
+        if normal[2] > 0:
+            normal = -normal
+            
+        self.plane_normal = normal
+        print("\nBest Fit Plane Calculation Results:")
+        print(f"Plane Normal: [{normal[0]:.3f}, {normal[1]:.3f}, {normal[2]:.3f}]")
+        self.flag_calculate_plane = False
+        print("Finished Calculating Best Fit Plane\n")
+
     def transform_marker_positions(self) -> None:
-        """Transform marker positions based on rim parameters."""
+        """Transform marker positions based on rim parameters and best fit plane."""
         mesh_marker_pos = list(self.mesh_marker_positions.values())
         rim_marker_pos = list(self.rim_marker_positions.values())
         
-        # Transform points
-        rotation_mat = self.rotation_matrix_from_vectors(self.normal, self.config.z_axis)
+        # Transform points relative to rim center
         mesh_marker_pos = np.array(mesh_marker_pos) - self.center
         rim_marker_pos = np.array(rim_marker_pos) - self.center
 
+        # Calculate rotation matrix using plane normal instead of rim normal
+        rotation_mat = self.rotation_matrix_from_vectors(self.plane_normal, self.config.z_axis)
+        
         # Rotate points
         mesh_marker_pos = mesh_marker_pos @ rotation_mat.T
         rim_marker_pos = rim_marker_pos @ rotation_mat.T
-
-        # Apply rim offset
-        mesh_marker_pos[:, 2] += self.config.rim_z_offset
 
         # Update Z positions and display
         self.z_mocap_mm = [1000 * z for z in mesh_marker_pos[:, 2]]
@@ -217,8 +248,12 @@ class MocapServer:
         if self.flag_calculate_rim:
             self.calculate_rim_parameters()
 
-        # Transform positions if rim has been calculated
-        if not self.flag_calculate_rim:
+        # Calculate best fit plane once
+        if self.flag_calculate_plane:
+            self.calculate_best_fit_plane()
+
+        # Transform positions if both calculations are done
+        if not (self.flag_calculate_rim or self.flag_calculate_plane):
             self.transform_marker_positions()
 
     def start_server(self, host: str = '0.0.0.0', port: int = 9999) -> None:
