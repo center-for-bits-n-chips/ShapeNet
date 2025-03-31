@@ -132,6 +132,45 @@ class MocapServer:
         radius = np.linalg.norm(center - P1)
         return center, radius, normal
 
+    def calculate_rim_parameters(self) -> None:
+        """Calculate rim parameters from marker positions."""
+        rim_marker_pos = list(self.rim_marker_positions.values())
+        if not all(value != 0 for row in rim_marker_pos for value in row):
+            return
+            
+        p1, p2, p3 = rim_marker_pos
+        self.center, self.radius, self.normal = self.compute_circumradius(p1, p2, p3)
+        # Convert center and radius to millimeters
+        center_mm = self.center * 1000
+        radius_mm = self.radius * 1000
+        print("\nRim Calculation Results:")
+        print(f"Center [mm]: [{center_mm[0]:.1f}, {center_mm[1]:.1f}, {center_mm[2]:.1f}]")
+        print(f"Radius [mm]: {radius_mm:.1f}")
+        print(f"Normal: [{self.normal[0]:.3f}, {self.normal[1]:.3f}, {self.normal[2]:.3f}]")
+        self.flag_calculate_rim = False
+        print("Finished Calculating Rim\n")
+
+    def transform_marker_positions(self) -> None:
+        """Transform marker positions based on rim parameters."""
+        mesh_marker_pos = list(self.mesh_marker_positions.values())
+        rim_marker_pos = list(self.rim_marker_positions.values())
+        
+        # Transform points
+        rotation_mat = self.rotation_matrix_from_vectors(self.normal, self.config.z_axis)
+        mesh_marker_pos = np.array(mesh_marker_pos) - self.center
+        rim_marker_pos = np.array(rim_marker_pos) - self.center
+
+        # Rotate points
+        mesh_marker_pos = mesh_marker_pos @ rotation_mat.T
+        rim_marker_pos = rim_marker_pos @ rotation_mat.T
+
+        # Apply rim offset
+        mesh_marker_pos[:, 2] += self.config.rim_z_offset
+
+        # Update Z positions and display
+        self.z_mocap_mm = [1000 * z for z in mesh_marker_pos[:, 2]]
+        self.display.update_positions(dict(zip(range(len(mesh_marker_pos)), 1000.0 * mesh_marker_pos)))
+
     def handle_client(self, conn: socket.socket, addr: Tuple[str, int]) -> None:
         """Handle interaction with a single connected client."""
         print(f"Connected by {addr}")
@@ -170,44 +209,17 @@ class MocapServer:
         elif model_id == 1:  # rim markers
             self.rim_marker_positions[marker_id] = [y, z, x]
 
-        rim_marker_pos = list(self.rim_marker_positions.values())
-        mesh_marker_pos = list(self.mesh_marker_positions.values())
-
-        if not (all(value != 0 for row in rim_marker_pos for value in row) and 
-                len(mesh_marker_pos) == self.config.num_mesh_markers):
+        # Only proceed if we have all required markers
+        if not (len(self.mesh_marker_positions) == self.config.num_mesh_markers):
             return
 
+        # Calculate rim parameters once
         if self.flag_calculate_rim:
-            p1, p2, p3 = rim_marker_pos
-            self.center, self.radius, self.normal = self.compute_circumradius(p1, p2, p3)
-            # Convert center and radius to millimeters
-            center_mm = self.center * 1000
-            radius_mm = self.radius * 1000
-            print("\nRim Calculation Results:")
-            print(f"Center [mm]: [{center_mm[0]:.1f}, {center_mm[1]:.1f}, {center_mm[2]:.1f}]")
-            print(f"Radius [mm]: {radius_mm:.1f}")
-            print(f"Normal: [{self.normal[0]:.3f}, {self.normal[1]:.3f}, {self.normal[2]:.3f}]")
-            self.flag_calculate_rim = False
-            print("Finished Calculating Rim\n")
-            time.sleep(10)
+            self.calculate_rim_parameters()
 
-        # Transform points
-        rotation_mat = self.rotation_matrix_from_vectors(self.normal, self.config.z_axis)
-        mesh_marker_pos = np.array(mesh_marker_pos) - self.center
-        rim_marker_pos = np.array(rim_marker_pos) - self.center
-
-        # Rotate points
-        mesh_marker_pos = mesh_marker_pos @ rotation_mat.T
-        rim_marker_pos = rim_marker_pos @ rotation_mat.T
-
-        # Apply rim offset
-        mesh_marker_pos[:, 2] += self.config.rim_z_offset
-
-        # Update Z positions
-        self.z_mocap_mm = [1000 * z for z in mesh_marker_pos[:, 2]]
-        
-        # Update display with current positions
-        self.display.update_positions(dict(zip(range(len(mesh_marker_pos)), 1000.0 * mesh_marker_pos)))
+        # Transform positions if rim has been calculated
+        if not self.flag_calculate_rim:
+            self.transform_marker_positions()
 
     def start_server(self, host: str = '0.0.0.0', port: int = 9999) -> None:
         """Start the TCP server."""
