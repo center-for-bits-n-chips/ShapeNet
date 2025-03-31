@@ -198,7 +198,7 @@ class MocapServer:
         self.z_mocap_mm = [1000 * z for z in mesh_marker_pos[:, 2]]
         
         # Update display with current positions
-        self.display.update_positions(dict(zip(range(len(mesh_marker_pos)), mesh_marker_pos)))
+        self.display.update_positions(dict(zip(range(len(mesh_marker_pos)), 1000.0 * mesh_marker_pos)))
 
     def start_server(self, host: str = '0.0.0.0', port: int = 9999) -> None:
         """Start the TCP server."""
@@ -230,15 +230,9 @@ def main():
     }
     
     if len(sys.argv) > 1:
-        options["serverAddress"] = sys.argv[1]
-        if len(sys.argv) > 2:
-            options["clientAddress"] = sys.argv[2]
-            if len(sys.argv) > 3 and sys.argv[3]:
-                options["use_multicast"] = sys.argv[3][0].upper() != "U"
-            if len(sys.argv) > 4:
-                options["enable_visualization"] = sys.argv[4].lower() != "false"
-            if len(sys.argv) > 5:
-                options["enable_display"] = sys.argv[5].lower() != "false"
+        options["enable_visualization"] = sys.argv[1].lower() != "false"
+    if len(sys.argv) > 2:
+        options["enable_display"] = sys.argv[2].lower() != "false"
 
     # Initialize NatNet client
     streaming_client = NatNetClient()
@@ -262,7 +256,6 @@ def main():
     if options["enable_visualization"]:
         from mocap_visualizer import MoCapVisualizer
         visualizer = MoCapVisualizer(mocap_server)
-        print("Using high-performance 3D visualization")
         visualizer.start()
         print("3D visualization started")
 
