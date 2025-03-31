@@ -88,6 +88,7 @@ class MocapServer:
         self.flag_calculate_rim = True
         self.flag_calculate_plane = True  # New flag for plane calculation
         self.plane_normal = np.array([0, 0, -1])  # Initial plane normal
+        self.plane_centroid = np.array([0, 0, 0])  # New attribute for plane centroid
         self.display = DigitalDisplay(self, config.display_update_rate)
 
     def __del__(self):
@@ -161,10 +162,10 @@ class MocapServer:
         points = np.array(mesh_marker_pos)
         
         # Calculate centroid
-        centroid = np.mean(points, axis=0)
+        self.plane_centroid = np.mean(points, axis=0)
         
         # Form the matrix A of mean-centered points
-        A = points - centroid
+        A = points - self.plane_centroid
         
         # Calculate SVD
         _, _, vh = np.linalg.svd(A)
@@ -179,6 +180,7 @@ class MocapServer:
         self.plane_normal = normal
         print("\nBest Fit Plane Calculation Results:")
         print(f"Plane Normal: [{normal[0]:.3f}, {normal[1]:.3f}, {normal[2]:.3f}]")
+        print(f"Plane Centroid [mm]: [{self.plane_centroid[0]*1000:.1f}, {self.plane_centroid[1]*1000:.1f}, {self.plane_centroid[2]*1000:.1f}]")
         self.flag_calculate_plane = False
         print("Finished Calculating Best Fit Plane\n")
 
@@ -187,11 +189,22 @@ class MocapServer:
         mesh_marker_pos = list(self.mesh_marker_positions.values())
         rim_marker_pos = list(self.rim_marker_positions.values())
         
-        # Transform points relative to rim center
-        mesh_marker_pos = np.array(mesh_marker_pos) - self.center
-        rim_marker_pos = np.array(rim_marker_pos) - self.center
+        # Convert to numpy arrays
+        mesh_marker_pos = np.array(mesh_marker_pos)
+        rim_marker_pos = np.array(rim_marker_pos)
 
-        # Calculate rotation matrix using plane normal instead of rim normal
+        # Create a hybrid center: x,y from rim center, z from plane centroid
+        hybrid_center = np.array([
+            self.center[0],  # x from rim
+            self.center[1],  # y from rim
+            self.plane_centroid[2]  # z from plane centroid
+        ])
+        
+        # Transform points relative to hybrid center
+        mesh_marker_pos = mesh_marker_pos - hybrid_center
+        rim_marker_pos = rim_marker_pos - hybrid_center
+
+        # Calculate rotation matrix using plane normal
         rotation_mat = self.rotation_matrix_from_vectors(self.plane_normal, self.config.z_axis)
         
         # Rotate points
