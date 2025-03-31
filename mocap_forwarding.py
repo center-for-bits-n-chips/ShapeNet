@@ -27,12 +27,12 @@ class MocapServer:
         self.rim_marker_positions: Dict[int, List[float]] = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
         self.normal = np.array([0, 0, -1])
         self.center = np.array([0, 0, 0])
-        self.radius_mm = 50.0
-        self.flag_calculate_rim = True
-        self.flag_calculate_plane = True  # New flag for plane calculation
+        self.radius = 250.0
+        self.flag_calibrate = True
         self.plane_normal = np.array([0, 0, -1])  # Initial plane normal
         self.plane_centroid = np.array([0, 0, 0])  # New attribute for plane centroid
-        self.mesh_marker_pos = np.zeros((config.num_mesh_markers, 3))  # Add transformed positions
+        self.mesh_marker_pos = np.zeros((config.num_mesh_markers, 3))  # in meters
+        self.mesh_marker_pos_mm = np.zeros((config.num_mesh_markers, 3))  # in millimeters
         self.display = DigitalDisplay(self, config.display_update_rate)
 
     def __del__(self):
@@ -78,7 +78,7 @@ class MocapServer:
         radius = np.linalg.norm(center - P1)
         return center, radius, normal
 
-    def calculate_rim_parameters(self) -> None:
+    def initial_calibration(self) -> None:
         """Calculate rim parameters from marker positions."""
         rim_marker_pos = list(self.rim_marker_positions.values())
         mesh_marker_pos = list(self.mesh_marker_positions.values())
@@ -139,7 +139,7 @@ class MocapServer:
         print(f"Center [mm]: [{center_mm[0]:.1f}, {center_mm[1]:.1f}, {center_mm[2]:.1f}]")
         print(f"Radius [mm]: {radius_mm:.1f}")
         print(f"Normal: [{self.normal[0]:.3f}, {self.normal[1]:.3f}, {self.normal[2]:.3f}]")
-        self.flag_calculate_rim = False
+        self.flag_calibrate = False
         print("Finished Calculating Rim\n")
 
     def transform_marker_positions(self) -> None:
@@ -162,12 +162,11 @@ class MocapServer:
         # Translate x,y coordinates using center
         mesh_marker_pos[:, :2] = mesh_marker_pos[:, :2] - self.center[:2]
         
-        # Store transformed positions
+        # Store transformed positions in meters and millimeters
         self.mesh_marker_pos = mesh_marker_pos
+        self.mesh_marker_pos_mm = mesh_marker_pos * 1000.0  # Convert to millimeters
         
-        # Update Z positions and display
-        self.z_mocap_mm = [1000 * z for z in mesh_marker_pos[:, 2]]
-        self.display.update_positions(dict(zip(range(len(mesh_marker_pos)), 1000.0 * mesh_marker_pos)))
+        self.display.update_positions(dict(zip(range(len(mesh_marker_pos)), self.mesh_marker_pos_mm)))
 
     def handle_client(self, conn: socket.socket, addr: Tuple[str, int]) -> None:
         """Handle interaction with a single connected client."""
@@ -185,10 +184,12 @@ class MocapServer:
                     while len(data) >= 8:
                         struct.unpack('>d', data[:8])[0]
                         data = data[8:]
-                        
-                    # Send data to client
-                    format_string = '>' + 'd' * len(self.z_mocap_mm)
-                    conn.sendall(struct.pack(format_string, *self.z_mocap_mm))
+                    
+                    # Send all marker positions in millimeters
+                    # Format: [x1, y1, z1, x2, y2, z2, ...]
+                    flat_positions = self.mesh_marker_pos_mm.flatten()
+                    format_string = '>' + 'd' * len(flat_positions)
+                    conn.sendall(struct.pack(format_string, *flat_positions))
                     
                 except socket.timeout:
                     continue
@@ -212,11 +213,11 @@ class MocapServer:
             return
 
         # Calculate rim parameters once
-        if self.flag_calculate_rim:
-            self.calculate_rim_parameters()
+        if self.flag_calibrate:
+            self.initial_calibration()
 
         # Transform positions if calibration calculations are done
-        if not self.flag_calculate_rim:
+        if not self.flag_calibrate:
             self.transform_marker_positions()
 
     def start_server(self, host: str = '0.0.0.0', port: int = 9999) -> None:

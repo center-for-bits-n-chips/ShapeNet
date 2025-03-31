@@ -29,7 +29,7 @@ def calculate_spread(positions):
 def plot_comparison():
     # Read both datasets
     voltage1, mocap1 = read_labview_binary("2025-03-31 pull-in rim 1.dat")
-    voltage2, mocap2 = read_labview_binary("2025-03-31 pull-in plane.dat")
+    voltage2, mocap2 = read_labview_binary("2025-03-31 pull-in plane 15 mm.dat")
 
     # Create figure
     plt.figure(figsize=(10, 8))
