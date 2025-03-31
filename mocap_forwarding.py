@@ -186,7 +186,7 @@ class MocapServer:
         
         # Calculate circle parameters in rotated space
         p1, p2, p3 = rim_markers
-        self.center, self.radius, _ = self.compute_circumradius(p1, p2, p3)
+        self.center, self.radius, self.normal = self.compute_circumradius(p1, p2, p3)
         
         # Convert center and radius to millimeters
         center_mm = self.center * 1000
@@ -194,6 +194,7 @@ class MocapServer:
         print("\nRim Calculation Results:")
         print(f"Center [mm]: [{center_mm[0]:.1f}, {center_mm[1]:.1f}, {center_mm[2]:.1f}]")
         print(f"Radius [mm]: {radius_mm:.1f}")
+        print(f"Normal: [{self.normal[0]:.3f}, {self.normal[1]:.3f}, {self.normal[2]:.3f}]")
         self.flag_calculate_rim = False
         print("Finished Calculating Rim\n")
 
@@ -206,24 +207,15 @@ class MocapServer:
         mesh_marker_pos = np.array(mesh_marker_pos)
         rim_marker_pos = np.array(rim_marker_pos)
 
-        # Create a hybrid center: x,y from rim center, z from plane centroid
-        hybrid_center = np.array([
-            self.center[0],  # x from rim
-            self.center[1],  # y from rim
-            self.plane_centroid[2]  # z from plane centroid
-        ])
-        
         # Transform points relative to hybrid center
-        mesh_marker_pos = mesh_marker_pos - hybrid_center
-        rim_marker_pos = rim_marker_pos - hybrid_center
-
+        mesh_marker_pos = mesh_marker_pos - self.plane_centroid
+        
         # Calculate rotation matrix using plane normal
         rotation_mat = self.rotation_matrix_from_vectors(self.plane_normal, self.config.z_axis)
         
         # Rotate points
         mesh_marker_pos = mesh_marker_pos @ rotation_mat.T
-        rim_marker_pos = rim_marker_pos @ rotation_mat.T
-
+        
         # Update Z positions and display
         self.z_mocap_mm = [1000 * z for z in mesh_marker_pos[:, 2]]
         self.display.update_positions(dict(zip(range(len(mesh_marker_pos)), 1000.0 * mesh_marker_pos)))
