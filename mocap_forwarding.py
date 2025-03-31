@@ -85,6 +85,7 @@ class MocapServer:
         self.rim_marker_positions: Dict[int, List[float]] = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
         self.normal = np.array([0, 0, -1])
         self.center = np.array([0, 0, 0])
+        self.radius_mm = 50.0
         self.flag_calculate_rim = True
         self.display = DigitalDisplay(self, config.display_update_rate)
 
@@ -178,9 +179,17 @@ class MocapServer:
 
         if self.flag_calculate_rim:
             p1, p2, p3 = rim_marker_pos
-            self.center, _, self.normal = self.compute_circumradius(p1, p2, p3)
+            self.center, self.radius, self.normal = self.compute_circumradius(p1, p2, p3)
+            # Convert center and radius to millimeters
+            center_mm = self.center * 1000
+            radius_mm = self.radius * 1000
+            print("\nRim Calculation Results:")
+            print(f"Center [mm]: [{center_mm[0]:.1f}, {center_mm[1]:.1f}, {center_mm[2]:.1f}]")
+            print(f"Radius [mm]: {radius_mm:.1f}")
+            print(f"Normal: [{self.normal[0]:.3f}, {self.normal[1]:.3f}, {self.normal[2]:.3f}]")
             self.flag_calculate_rim = False
-            print("Finished Calculating Rim")
+            print("Finished Calculating Rim\n")
+            time.sleep(10)
 
         # Transform points
         rotation_mat = self.rotation_matrix_from_vectors(self.normal, self.config.z_axis)
