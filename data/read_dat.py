@@ -57,7 +57,7 @@ def main():
 
     plt.title('LabVIEW Binary Data (pull-in.dat)')
     plt.xlabel('Record index')
-    plt.ylabel('Value')
+    plt.ylabel('[mm], [kV]')
     plt.legend()
     plt.grid(True)
     
