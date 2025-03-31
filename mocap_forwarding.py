@@ -26,22 +26,24 @@ class DigitalDisplay:
         self.stop_event = Event()
         self.display_thread = None
         self.last_positions = None
-
-    def clear_screen(self):
-        os.system('cls' if os.name == 'nt' else 'clear')
+        # Move cursor to top-left and clear screen once at initialization
+        print('\033[2J\033[H')
 
     def format_value(self, value: float) -> str:
         return f"{value:6.2f}"
 
     def display_positions(self):
         """Display the current mesh marker positions in a formatted table."""
-        self.clear_screen()
+        # Move cursor to home position (1,1)
+        print('\033[H')
         print("\n=== Mesh Marker Positions (mm) ===")
         print("Marker ID |    X    |    Y    |    Z    |")
         print("-" * 40)
         
         if self.last_positions is None:
             print("Waiting for marker data...")
+            # Clear any remaining lines
+            print('\033[J')
             return
 
         for marker_id, pos in sorted(self.last_positions.items()):
@@ -50,6 +52,8 @@ class DigitalDisplay:
         print("-" * 40)
         print(f"Last update: {time.strftime('%H:%M:%S')}")
         print("\nPress Ctrl+C to exit")
+        # Clear any remaining lines
+        print('\033[J')
 
     def update_loop(self):
         """Main update loop for the display."""
