@@ -1,81 +1,187 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.animation as animation
+from matplotlib.animation import FFMpegWriter
 
-def read_labview_binary(filename):
+def read_labview_binary(filename, decimate=120):
     """
-    Reads a binary file where each record consists of two arrays of 8 doubles.
+    Reads a binary file where each record consists of:
+    - 1 voltage value
+    - 24 position values grouped as [x1,x2,...,y1,y2,...,z1,z2,...]
+    
+    Args:
+        filename: Path to the binary file
+        decimate: Take every Nth sample (default: 120)
+    
     Returns:
-        array1_all: 2D NumPy array of shape (num_records, 8)
-        array2_all: 2D NumPy array of shape (num_records, 8)
+        voltage: 1D array of voltage values
+        positions: 3D array of shape (num_records, num_markers, 3) for x,y,z positions
     """
     # Read the entire file as double-precision floats
     data = np.fromfile(filename, dtype='<f8')
     
-    # Each record has 16 doubles total (8 for the first array, 8 for the second)
-    # Figure out how many records there are
-    num_records = data.size // 9
+    # Each record has 25 doubles (1 voltage + 8 markers * 3 coordinates)
+    num_records = data.size // 25
+    print(f"Number of records: {num_records}")
 
     # Discard data that's not fully written
-    largest_multiple = (data.size // 9) * 9
+    largest_multiple = (data.size // 25) * 25
     data = data[:largest_multiple]
 
-    # Reshape so that each row corresponds to 16 doubles (one record)
-    data = data.reshape((num_records, 9))
+    # Reshape so that each row corresponds to 25 doubles (one record)
+    data = data.reshape((num_records, 25))
+    
+    # Decimate the data
+    data = data[::decimate]
 
-    # Write to CSV
-    np.savetxt("output.csv", data, delimiter=",", fmt="%.4f")
-    
-    # Split into two arrays: first 8 columns, last 8 columns
-    #data_initial = 500
-    #data_final = 15000
-    #voltage = data[data_initial:data_final, 0]
-    #mocap = data[data_initial:data_final, 1:]
+    # Split into voltage and position data
     voltage = data[:, 0]
-    mocap = data[:, 1:]
+    positions_flat = data[:, 1:]  # Shape is (num_records, 24)
     
-    return voltage, mocap
+    # Reorganize position data from [x1,x2,...,y1,y2,...,z1,z2,...] to (num_records, num_markers, xyz)
+    num_markers = 8
+    x_coords = positions_flat[:, :num_markers]  # First 8 values are x coordinates
+    y_coords = positions_flat[:, num_markers:2*num_markers]  # Next 8 are y coordinates
+    z_coords = positions_flat[:, 2*num_markers:]  # Last 8 are z coordinates
+    
+    # Stack the coordinates to create (num_records, num_markers, 3) array
+    positions = np.stack([x_coords, y_coords, z_coords], axis=2)
+    
+    # Calculate timing information
+    original_sample_rate = 120  # Hz
+    total_time = num_records / original_sample_rate  # seconds
+    decimated_rate = original_sample_rate / decimate  # Hz
+    
+    print(f"Total time: {total_time:.2f} seconds ({total_time/60:.2f} minutes)")
+    print(f"Original sample rate: {original_sample_rate} Hz")
+    print(f"Decimated sample rate: {decimated_rate:.2f} Hz")
+    print(f"Number of decimated samples: {len(data)}")
+    
+    return voltage, positions
+
+def create_circle_points(radius=250.0, num_points=100):
+    """Create points for a circle in the XY plane centered at origin."""
+    theta = np.linspace(0, 2*np.pi, num_points)
+    x = radius * np.cos(theta)
+    y = radius * np.sin(theta)
+    z = np.zeros_like(theta)
+    return np.column_stack((x, y, z))
+
+def animate_markers(positions, z_scale=5.0, interval=50, save_path='marker_animation.mp4'):
+    """
+    Create a 3D animation of marker positions over time and save to file.
+    
+    Args:
+        positions: Array of marker positions (time, markers, xyz)
+        z_scale: Scale factor for z-displacement visualization (default: 5.0)
+        interval: Animation interval in milliseconds (default: 50)
+        save_path: Path to save the video file (default: 'marker_animation.mp4')
+    """
+    fig = plt.figure(figsize=(10, 10))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Scale z-coordinates for visualization
+    scaled_positions = positions.copy()
+    scaled_positions[:, :, 2] *= z_scale
+    
+    # Initialize scatter plot for markers
+    scatter = ax.scatter(scaled_positions[0, :, 0], 
+                        scaled_positions[0, :, 1], 
+                        scaled_positions[0, :, 2])
+    
+    # Create and plot circle
+    circle_points = create_circle_points()
+    circle_line, = ax.plot(circle_points[:, 0], circle_points[:, 1], circle_points[:, 2], 
+                          'g-', label='Reference Circle')
+    
+    # Set axis labels
+    ax.set_xlabel('X [mm]')
+    ax.set_ylabel('Y [mm]')
+    ax.set_zlabel(f'Z [mm] (scaled {z_scale}x)')
+    
+    # Find min and max values for consistent scaling
+    x_min, x_max = min(positions[:, :, 0].min(), -250), max(positions[:, :, 0].max(), 250)
+    y_min, y_max = min(positions[:, :, 1].min(), -250), max(positions[:, :, 1].max(), 250)
+    z_min, z_max = scaled_positions[:, :, 2].min(), scaled_positions[:, :, 2].max()
+    
+    # Set axis limits with some padding
+    padding = 10  # mm
+    ax.set_xlim(x_min - padding, x_max + padding)
+    ax.set_ylim(y_min - padding, y_max + padding)
+    ax.set_zlim(z_min - padding, z_max + padding)
+    
+    # Add legend
+    ax.legend()
+    
+    def update(frame):
+        # Update scatter plot data with scaled z-coordinates
+        scatter._offsets3d = (scaled_positions[frame, :, 0],
+                            scaled_positions[frame, :, 1],
+                            scaled_positions[frame, :, 2])
+        ax.set_title(f'Frame {frame}')
+        return scatter,
+    
+    # Create animation
+    anim = animation.FuncAnimation(fig, update,
+                                 frames=len(positions),
+                                 interval=interval,
+                                 blit=False)  # Changed to False for better compatibility
+    
+    # Set up the writer
+    writer = FFMpegWriter(fps=30, metadata=dict(artist='Me'), bitrate=1800)
+    
+    # Save the animation
+    anim.save(save_path, writer=writer)
+    plt.close()
+    
+    print(f"Animation saved to {save_path}")
 
 def main():
-    # Path to your binary data file
-    filename = "2025-03-25 creep 18 mm.dat"
-    # filename = "data/2025-01-31 ramp pull-in.dat"
-    # filename = "data/impulse_data.dat"
+    print("\nReading data file...")
+    filename = "2025-03-31 pull-in full.dat"
+    voltage, positions = read_labview_binary(filename, decimate=120)
+    print("\nGenerating plots...")
     
-    # Read the data
-    voltage, mocap = read_labview_binary(filename)
-    
-    # For demonstration, we can plot the eight elements of array1
-    # vs. record index. Similarly, we could do the same for array2.
-    
-    # Create a figure
+    # Create time series plot
     plt.figure(figsize=(10, 6))
+    time_indices = np.arange(len(voltage))
+    
+    # Plot voltage
+    plt.plot(time_indices, voltage, label='Voltage', color='black')
+    
+    # Plot each marker's z position
+    colors = plt.cm.rainbow(np.linspace(0, 1, 8))  # Different color for each marker
+    for i in range(8):
+        plt.plot(time_indices, positions[:, i, 2],
+                label=f'Marker {i} z',
+                color=colors[i])
 
-    # Plot each column of array1
-    for i in range(mocap.shape[1]):
-        plt.plot(mocap[:, i], label=f'Mocap {i}')
-    plt.plot(voltage, label=f'Voltage')
-
-    plt.title('LabVIEW Binary Data (pull-in.dat)')
-    plt.xlabel('Record index')
+    plt.title('Motion Capture and Voltage Data vs Time')
+    plt.xlabel('Sample Index')
     plt.ylabel('[mm], [kV]')
-    plt.legend()
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.grid(True)
     
-
-    plt.figure(figsize=(10,6))
-    # Plot each column of array1
-    for i in range(mocap.shape[1]):
-        plt.plot(voltage, mocap[:, i], label=f'Mocap {i}')
-    plt.title('LabVIEW Binary Data (pull-in.dat)')
+    # Create voltage vs position plot
+    plt.figure(figsize=(10, 6))
+    for i in range(8):
+        plt.plot(voltage, positions[:, i, 2],
+                label=f'Marker {i} z',
+                color=colors[i])
+    
+    plt.title('Z Position vs Voltage')
     plt.xlabel('Voltage [kV]')
-    plt.ylabel('Displacement [mm]')
-    plt.xlim(0, 25)
-    plt.ylim(0, 35)
-    plt.legend()
+    plt.ylabel('Z Position [mm]')
+    plt.xlim(0, max(voltage) * 1.1)
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.grid(True)
-
+    
+    # Create and save 3D animation with scaled z-displacement
+    animate_markers(positions, z_scale=5.0, save_path='marker_animation.mp4')
+    
+    # Show the other plots
     plt.show()
-
 
 if __name__ == "__main__":
     main()
