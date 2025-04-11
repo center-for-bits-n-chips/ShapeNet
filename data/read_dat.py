@@ -141,7 +141,7 @@ def animate_markers(positions, z_scale=5.0, interval=50, save_path='marker_anima
 
 def main():
     print("\nReading data file...")
-    filename = "2025-03-31 pull-in full.dat"
+    filename = "pull-in.dat"
     voltage, positions = read_labview_binary(filename, decimate=120)
     print("\nGenerating plots...")
     
@@ -180,7 +180,7 @@ def main():
     plt.grid(True)
     
     # Create and save 3D animation with scaled z-displacement
-    animate_markers(positions, z_scale=5.0, save_path='marker_animation.mp4')
+    #animate_markers(positions, z_scale=5.0, save_path='marker_animation.mp4')
     
     # Show the other plots
     plt.show()
