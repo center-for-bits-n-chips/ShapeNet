@@ -78,6 +78,9 @@ def create_animation(data_frames, output_file='membrane_deformation.gif'):
     # Set equal aspect ratio
     ax.set_box_aspect([1,1,1])
     
+    # Set fixed z limits
+    ax.set_zlim(-20, 5)
+    
     def update(frame):
         """Update function for animation."""
         df = data_frames[frame]
@@ -95,10 +98,10 @@ def create_animation(data_frames, output_file='membrane_deformation.gif'):
     # Save animation
     anim.save(output_file, writer='pillow')
     plt.close()
-
+    
 def main():
     # Directory containing the DIC data
-    directory = '18 mm test'
+    directory = '18 mm test with sync'
     
     # Read all data frames
     print("Reading DIC data files...")

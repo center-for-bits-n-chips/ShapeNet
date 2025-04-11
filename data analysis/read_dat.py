@@ -276,8 +276,8 @@ def plot_multiple_profiles(positions, time, frame_indices, z_scale=5.0):
 
 def main():
     print("\nReading data file...")
-    filename = "data/2025-04-10 pull-in with two amplifiers staggered.dat"
-    voltage, positions, time = read_labview_binary(filename, decimate=120)
+    filename = "data/2025-03-31 pull-in DIC.dat"
+    voltage, positions, time = read_labview_binary(filename, decimate=12)
     print("\nGenerating plots...")
     # Create time series plot
     plt.figure(figsize=(10, 6))
@@ -315,7 +315,7 @@ def main():
     plt.grid(True)
     
     # Plot multiple profiles
-    plot_multiple_profiles(positions, time, frame_indices=[50, 120], z_scale=1.0)
+    plot_multiple_profiles(positions, time, frame_indices=[300, 400, 500], z_scale=1.0)
     plt.show()
 
     # Create and save 3D animation with scaled z-displacement
