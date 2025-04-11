@@ -141,17 +141,144 @@ def animate_markers(positions, z_scale=5.0, interval=50, save_path='marker_anima
     
     print(f"Animation saved to {save_path}")
 
+def cartesian_to_cylindrical(positions):
+    """
+    Convert Cartesian (x,y,z) coordinates to cylindrical (r,theta,z) coordinates.
+    
+    Args:
+        positions: 3D array of shape (num_records, num_markers, 3) containing x,y,z coordinates
+    
+    Returns:
+        r: Radial distance from origin
+        theta: Angle in radians
+        z: Height (unchanged)
+    """
+    x = positions[:, :, 0]
+    y = positions[:, :, 1]
+    z = positions[:, :, 2]
+    
+    r = np.sqrt(x**2 + y**2)
+    theta = np.arctan2(y, x)
+    
+    return r, theta, z
+
+def plot_marker_locations(positions, time, frame_index=None):
+    """
+    Plot the profile of the shape in cylindrical coordinates.
+    
+    Args:
+        positions: 3D array of shape (num_records, num_markers, 3)
+        time: Time array
+        frame_index: Optional index to plot a specific frame
+    """
+    r, theta, z = cartesian_to_cylindrical(positions)
+    
+    if frame_index is None:
+        frame_index = 0  # Default to first frame
+    
+    plt.figure(figsize=(10, 6))
+    plt.polar(theta[frame_index], r[frame_index], 'o')
+    plt.title(f'Marker Locations at t = {time[frame_index]:.2f} s')
+    plt.grid(True)
+
+def animate_profile(positions, time, z_scale=5.0, interval=50, save_path='profile_animation.mp4'):
+    """
+    Create an animation of the profile over time and save to file.
+    
+    Args:
+        positions: Array of marker positions (time, markers, xyz)
+        time: Time array
+        z_scale: Scale factor for z-displacement visualization
+        interval: Animation interval in milliseconds
+        save_path: Path to save the video file
+    """
+    r, theta, z = cartesian_to_cylindrical(positions)
+    z_scaled = z * z_scale
+    
+    fig = plt.figure(figsize=(10, 6))
+    ax = fig.add_subplot(111)
+    
+    # Initialize line plot
+    line, = ax.plot([], [], '.-')
+    
+    # Set axis limits
+    ax.set_xlim(0, 300)  # Adjust based on your data
+    ax.set_ylim(z_scaled.min(), z_scaled.max())
+    
+    # Set labels
+    ax.set_xlabel('Radial Distance [mm]')
+    ax.set_ylabel(f'Z Position [mm] (scaled {z_scale}x)')
+    ax.grid(True)
+    
+    def update(frame):
+        # Sort r and z by increasing r values
+        sort_idx = np.argsort(r[frame])
+        r_sorted = r[frame][sort_idx]
+        z_sorted = z_scaled[frame][sort_idx]
+        
+        # Remove any duplicate r values by averaging corresponding z values
+        unique_r, unique_idx = np.unique(r_sorted, return_index=True)
+        unique_z = np.array([np.mean(z_sorted[r_sorted == r_val]) for r_val in unique_r])
+        
+        # Update line data
+        line.set_data(unique_r, unique_z)
+        ax.set_title(f'Profile at t = {time[frame]:.2f} s')
+        return line,
+    
+    # Create animation
+    anim = animation.FuncAnimation(fig, update,
+                                 frames=len(positions),
+                                 interval=interval,
+                                 blit=False)
+    
+    # Set up the writer
+    writer = FFMpegWriter(fps=30, metadata=dict(artist='Me'), bitrate=1800)
+    
+    # Save the animation
+    anim.save(save_path, writer=writer)
+    plt.close()
+    
+    print(f"Profile animation saved to {save_path}")
+
+def plot_multiple_profiles(positions, time, frame_indices, z_scale=5.0):
+    """
+    Plot multiple profiles on the same figure.
+    
+    Args:
+        positions: 3D array of shape (num_records, num_markers, 3)
+        time: Time array
+        frame_indices: List of frame indices to plot
+        z_scale: Scale factor for z-displacement visualization
+    """
+    r, theta, z = cartesian_to_cylindrical(positions)
+    z_scaled = z * z_scale
+    
+    plt.figure(figsize=(10, 6))
+    
+    # Plot each profile
+    for i, frame_idx in enumerate(frame_indices):
+        # Sort r and z by increasing r values
+        sort_idx = np.argsort(r[frame_idx])
+        r_sorted = r[frame_idx][sort_idx]
+        z_sorted = z_scaled[frame_idx][sort_idx]
+        
+        # Remove any duplicate r values by averaging corresponding z values
+        unique_r, unique_idx = np.unique(r_sorted, return_index=True)
+        unique_z = np.array([np.mean(z_sorted[r_sorted == r_val]) for r_val in unique_r])
+        
+        plt.plot(unique_r, unique_z, '.-', label=f't = {time[frame_idx]:.2f} s')
+    
+    plt.title('Profile Comparison')
+    plt.xlabel('Radial Distance [mm]')
+    plt.ylabel(f'Z Position [mm] (scaled {z_scale}x)')
+    plt.legend()
+    plt.grid(True)
+
 def main():
     print("\nReading data file...")
-<<<<<<< Updated upstream:data/read_dat.py
-    filename = "pull-in.dat"
-    voltage, positions = read_labview_binary(filename, decimate=120)
-=======
-    filename = "2025-04-03 pull-in 27.5 mm ramp then discharge.dat"
+    filename = "data/2025-04-10 pull-in with two amplifiers staggered.dat"
     voltage, positions, time = read_labview_binary(filename, decimate=120)
->>>>>>> Stashed changes:data analysis/read_dat.py
     print("\nGenerating plots...")
-    
     # Create time series plot
     plt.figure(figsize=(10, 6))
     
@@ -187,11 +314,16 @@ def main():
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.grid(True)
     
+    # Plot multiple profiles
+    plot_multiple_profiles(positions, time, frame_indices=[50, 120], z_scale=1.0)
+    plt.show()
+
     # Create and save 3D animation with scaled z-displacement
     #animate_markers(positions, z_scale=5.0, save_path='marker_animation.mp4')
     
-    # Show the other plots
-    plt.show()
+    # Create and save profile animation
+    animate_profile(positions, time, z_scale=1.0, save_path='profile_animation.mp4')
+
 
 if __name__ == "__main__":
     main()
