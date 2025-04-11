@@ -17,6 +17,7 @@ def read_labview_binary(filename, num_markers=8, num_voltages=1, decimate=120):
     Returns:
         voltage: 1D array of voltage values
         positions: 3D array of shape (num_records, num_markers, 3) for x,y,z positions
+        time: 1D array of time values in seconds
     """
     # Calculate total values per record
     values_per_record = num_voltages + (num_markers * 3)  # voltages + (markers * xyz)
@@ -50,17 +51,18 @@ def read_labview_binary(filename, num_markers=8, num_voltages=1, decimate=120):
     # Stack the coordinates to create (num_records, num_markers, 3) array
     positions = np.stack([x_coords, y_coords, z_coords], axis=2)
     
-    # Calculate timing information
+    # Calculate time array
     original_sample_rate = 120  # Hz
-    total_time = num_records / original_sample_rate  # seconds
+    time = np.arange(num_records) / original_sample_rate  # Time in seconds
+    time = time[::decimate]  # Decimate time array to match data
     decimated_rate = original_sample_rate / decimate  # Hz
     
-    print(f"Total time: {total_time:.2f} seconds ({total_time/60:.2f} minutes)")
+    print(f"Total time: {time[-1]:.2f} seconds ({time[-1]/60:.2f} minutes)")
     print(f"Original sample rate: {original_sample_rate} Hz")
     print(f"Decimated sample rate: {decimated_rate:.2f} Hz")
     print(f"Number of decimated samples: {len(data)}")
     
-    return voltage, positions
+    return voltage, positions, time
 
 def create_circle_points(radius=250.0, num_points=100):
     """Create points for a circle in the XY plane centered at origin."""
@@ -141,26 +143,31 @@ def animate_markers(positions, z_scale=5.0, interval=50, save_path='marker_anima
 
 def main():
     print("\nReading data file...")
+<<<<<<< Updated upstream:data/read_dat.py
     filename = "pull-in.dat"
     voltage, positions = read_labview_binary(filename, decimate=120)
+=======
+    filename = "2025-04-03 pull-in 27.5 mm ramp then discharge.dat"
+    voltage, positions, time = read_labview_binary(filename, decimate=120)
+>>>>>>> Stashed changes:data analysis/read_dat.py
     print("\nGenerating plots...")
     
     # Create time series plot
     plt.figure(figsize=(10, 6))
-    time_indices = np.arange(len(voltage))
     
     # Plot voltage
-    plt.plot(time_indices, voltage, label='Voltage', color='black')
+    plt.plot(time, voltage, label='Voltage', color='black')
     
     # Plot each marker's z position
     colors = plt.cm.rainbow(np.linspace(0, 1, 8))  # Different color for each marker
     for i in range(8):
-        plt.plot(time_indices, positions[:, i, 2],
+        plt.plot(time, positions[:, i, 2],
                 label=f'Marker {i} z',
-                color=colors[i])
+                color=colors[i], 
+                marker='.')
 
     plt.title('Motion Capture and Voltage Data vs Time')
-    plt.xlabel('Sample Index')
+    plt.xlabel('Time [s]')
     plt.ylabel('[mm], [kV]')
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.grid(True)
@@ -170,7 +177,8 @@ def main():
     for i in range(8):
         plt.plot(voltage, positions[:, i, 2],
                 label=f'Marker {i} z',
-                color=colors[i])
+                color=colors[i], 
+                marker='.')
     
     plt.title('Z Position vs Voltage')
     plt.xlabel('Voltage [kV]')
