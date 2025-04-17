@@ -10,18 +10,26 @@ def read_dic_file(file_path):
     """Read a single DIC CSV file and return the data as a pandas DataFrame."""
     return pd.read_csv(file_path, sep=';')
 
-def get_displacement_data(directory):
+def get_dic_data(directory):
     """Read all DIC files in the directory and return a list of DataFrames."""
     # Get all CSV files in the directory
     files = sorted(glob(os.path.join(directory, 'd*.csv')))
     
+    # Read voltage data
+    voltage_file = os.path.join(directory, 'V0001.csv')
+    voltage_data = None
+    if os.path.exists(voltage_file):
+        voltage_df = pd.read_csv(voltage_file, sep=';', skiprows=1, dtype={'V': float})
+        # Get the voltage from 'Voltage ADC 1 channel 1' column
+        voltage_data = voltage_df['V'].values.astype(float)
+
     # Read each file
     data_frames = []
     for file in files:
         df = read_dic_file(file)
         data_frames.append(df)
     
-    return data_frames
+    return data_frames, voltage_data
 
 def plot_membrane_deformation(data_frames, frame_index):
     """Plot the membrane deformation for a specific frame."""
@@ -105,22 +113,22 @@ def main():
     
     # Read all data frames
     print("Reading DIC data files...")
-    data_frames = get_displacement_data(directory)
+    data_frames, voltage_data = get_dic_data(directory)
     print(f"Successfully read {len(data_frames)} frames")
     
     # Plot a few key frames
-    frames_to_plot = [0, len(data_frames)//2, -1]  # First, middle, and last frame
+    # frames_to_plot = [0, len(data_frames)//2, -1]  # First, middle, and last frame
     
-    for frame_idx in frames_to_plot:
-        print(f"Plotting frame {frame_idx}...")
-        fig = plot_membrane_deformation(data_frames, frame_idx)
-        plt.savefig(f'membrane_deformation_frame_{frame_idx}.png')
-        plt.close()
+    # for frame_idx in frames_to_plot:
+    #     print(f"Plotting frame {frame_idx}...")
+    #     fig = plot_membrane_deformation(data_frames, frame_idx)
+    #     plt.show()
+    #     plt.close()
     
     # Create animation
-    print("Creating animation...")
-    create_animation(data_frames)
-    print("Animation saved as 'membrane_deformation.gif'")
+    # print("Creating animation...")
+    # create_animation(data_frames)
+    # print("Animation saved as 'membrane_deformation.gif'")
     
     # Create a time series plot of maximum displacement (using absolute values)
     max_displacements = []
@@ -134,8 +142,14 @@ def main():
     plt.ylabel('Maximum Absolute Z-displacement (mm)')
     plt.title('Maximum Membrane Displacement Over Time')
     plt.grid(True)
-    plt.savefig('max_displacement_time_series.png')
-    plt.close()
+ 
+    # Plot voltage data
+    plt.figure(figsize=(10, 6))
+    plt.plot(voltage_data)
+    plt.xlabel('Frame')
+    plt.ylabel('Voltage (V)')
+    plt.title('Voltage Over Time')
+    plt.show()
 
 if __name__ == "__main__":
     main() 
