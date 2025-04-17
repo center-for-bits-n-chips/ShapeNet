@@ -98,10 +98,10 @@ def create_animation(data_frames, output_file='membrane_deformation.gif'):
     # Save animation
     anim.save(output_file, writer='pillow')
     plt.close()
-    
+
 def main():
     # Directory containing the DIC data
-    directory = '18 mm test with sync'
+    directory = '28 mm closed loop lights off take 2'
     
     # Read all data frames
     print("Reading DIC data files...")

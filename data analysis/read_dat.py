@@ -201,6 +201,12 @@ def animate_profile(positions, time, z_scale=5.0, interval=50, save_path='profil
     # Initialize line plot
     line, = ax.plot([], [], '.-')
     
+    # Initialize text annotations
+    text_annotations = []
+    for i in range(positions.shape[1]):
+        annotation = ax.text(0, 0, '', animated=True)
+        text_annotations.append(annotation)
+    
     # Set axis limits
     ax.set_xlim(0, 300)  # Adjust based on your data
     ax.set_ylim(z_scaled.min(), z_scaled.max())
@@ -223,13 +229,19 @@ def animate_profile(positions, time, z_scale=5.0, interval=50, save_path='profil
         # Update line data
         line.set_data(unique_r, unique_z)
         ax.set_title(f'Profile at t = {time[frame]:.2f} s')
-        return line,
+        
+        # Update text annotations
+        for i, (r_val, z_val) in enumerate(zip(r[frame], z_scaled[frame])):
+            text_annotations[i].set_position((r_val, z_val))
+            text_annotations[i].set_text(f'{z_val/z_scale:.1f}')  # Display unscaled z value
+        
+        return [line] + text_annotations
     
     # Create animation
     anim = animation.FuncAnimation(fig, update,
                                  frames=len(positions),
                                  interval=interval,
-                                 blit=False)
+                                 blit=True)
     
     # Set up the writer
     writer = FFMpegWriter(fps=30, metadata=dict(artist='Me'), bitrate=1800)
@@ -239,7 +251,6 @@ def animate_profile(positions, time, z_scale=5.0, interval=50, save_path='profil
     plt.close()
     
     print(f"Profile animation saved to {save_path}")
-
 def plot_multiple_profiles(positions, time, frame_indices, z_scale=5.0):
     """
     Plot multiple profiles on the same figure.
@@ -276,8 +287,8 @@ def plot_multiple_profiles(positions, time, frame_indices, z_scale=5.0):
 
 def main():
     print("\nReading data file...")
-    filename = "data/2025-03-31 pull-in DIC.dat"
-    voltage, positions, time = read_labview_binary(filename, decimate=12)
+    filename = "data/2025-04-16 pull-in 30 mm.dat"
+    voltage, positions, time = read_labview_binary(filename, decimate=120)
     print("\nGenerating plots...")
     # Create time series plot
     plt.figure(figsize=(10, 6))
