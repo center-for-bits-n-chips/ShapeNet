@@ -11,25 +11,25 @@ def read_dic_file(file_path):
     return pd.read_csv(file_path, sep=';')
 
 def get_dic_data(directory):
-    """Read all DIC files in the directory and return a list of DataFrames."""
+    """Read all DIC files in the directory and return a list of DataFrames with associated time and voltage data."""
     # Get all CSV files in the directory
     files = sorted(glob(os.path.join(directory, 'd*.csv')))
     
     # Read voltage data
     voltage_file = os.path.join(directory, 'V0001.csv')
-    voltage_data = None
     if os.path.exists(voltage_file):
-        voltage_df = pd.read_csv(voltage_file, sep=';', skiprows=1, dtype={'V': float})
+        voltage_df = pd.read_csv(voltage_file, sep=';', skiprows=[1])
         # Get the voltage from 'Voltage ADC 1 channel 1' column
-        voltage_data = voltage_df['V'].values.astype(float)
+        voltage_kV = 6 * voltage_df['Voltage ADC 1 channel 1'].values.astype(float)
+        time_s = 0.001 * voltage_df['Time'].values.astype(float)
 
-    # Read each file
+    # Read each file and associate with corresponding time/voltage data
     data_frames = []
     for file in files:
         df = read_dic_file(file)
         data_frames.append(df)
-    
-    return data_frames, voltage_data
+
+    return data_frames, time_s, voltage_kV
 
 def plot_membrane_deformation(data_frames, frame_index):
     """Plot the membrane deformation for a specific frame."""
@@ -113,7 +113,7 @@ def main():
     
     # Read all data frames
     print("Reading DIC data files...")
-    data_frames, voltage_data = get_dic_data(directory)
+    data_frames, time_s, voltage_kV = get_dic_data(directory)
     print(f"Successfully read {len(data_frames)} frames")
     
     # Plot a few key frames
@@ -135,20 +135,31 @@ def main():
     for df in data_frames:
         max_disp = abs(df['z-displacement[mm]']).max()
         max_displacements.append(max_disp)
+
+    plt.figure(figsize=(10, 6))
     
-    plt.figure(figsize=(10, 6))
-    plt.plot(max_displacements)
-    plt.xlabel('Frame')
-    plt.ylabel('Maximum Absolute Z-displacement (mm)')
-    plt.title('Maximum Membrane Displacement Over Time')
+    # Create two y-axes
+    ax1 = plt.gca()
+    ax2 = ax1.twinx()
+    
+    # Plot displacement on left y-axis
+    line1 = ax1.plot(time_s, max_displacements, 'b-', label='Displacement')
+    ax1.set_xlabel('Time (s)')
+    ax1.set_ylabel('Maximum Absolute Z-displacement (mm)', color='b')
+    ax1.tick_params(axis='y', labelcolor='b')
+    
+    # Plot voltage on right y-axis
+    line2 = ax2.plot(time_s, voltage_kV, 'r-', label='Voltage')
+    ax2.set_ylabel('Voltage (V)', color='r')
+    ax2.tick_params(axis='y', labelcolor='r')
+    
+    # Add legend
+    lines = line1 + line2
+    labels = [l.get_label() for l in lines]
+    ax1.legend(lines, labels, loc='upper right')
+    
+    plt.title('Membrane Displacement and Voltage Over Time')
     plt.grid(True)
- 
-    # Plot voltage data
-    plt.figure(figsize=(10, 6))
-    plt.plot(voltage_data)
-    plt.xlabel('Frame')
-    plt.ylabel('Voltage (V)')
-    plt.title('Voltage Over Time')
     plt.show()
 
 if __name__ == "__main__":
