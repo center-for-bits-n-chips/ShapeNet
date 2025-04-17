@@ -107,7 +107,7 @@ def create_animation(data_frames, output_file='membrane_deformation.gif'):
     anim.save(output_file, writer='pillow')
     plt.close()
 
-def main():
+def main(time_range=None):
     # Directory containing the DIC data
     directory = '28 mm closed loop lights off take 2'
     
@@ -116,25 +116,20 @@ def main():
     data_frames, time_s, voltage_kV = get_dic_data(directory)
     print(f"Successfully read {len(data_frames)} frames")
     
-    # Plot a few key frames
-    # frames_to_plot = [0, len(data_frames)//2, -1]  # First, middle, and last frame
-    
-    # for frame_idx in frames_to_plot:
-    #     print(f"Plotting frame {frame_idx}...")
-    #     fig = plot_membrane_deformation(data_frames, frame_idx)
-    #     plt.show()
-    #     plt.close()
-    
-    # Create animation
-    # print("Creating animation...")
-    # create_animation(data_frames)
-    # print("Animation saved as 'membrane_deformation.gif'")
-    
     # Create a time series plot of maximum displacement (using absolute values)
     max_displacements = []
     for df in data_frames:
         max_disp = abs(df['z-displacement[mm]']).max()
         max_displacements.append(max_disp)
+
+    # Apply time range if specified
+    if time_range is not None:
+        start_time, end_time = time_range
+        mask = (time_s >= start_time) & (time_s <= end_time)
+        time_s = time_s[mask]
+        max_displacements = np.array(max_displacements)[mask]
+        voltage_kV = voltage_kV[mask]
+        data_frames = [df for i, df in enumerate(data_frames) if mask[i]]
 
     plt.figure(figsize=(10, 6))
     
