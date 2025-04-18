@@ -130,12 +130,13 @@ def main(time_range=None):
         max_displacements = np.array(max_displacements)[mask]
         voltage_kV = voltage_kV[mask]
         data_frames = [df for i, df in enumerate(data_frames) if mask[i]]
+        print(f"Plotting data from {start_time:.3f}s to {end_time:.3f}s")
 
-    plt.figure(figsize=(10, 6))
+    # Create figure with two subplots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
     
-    # Create two y-axes
-    ax1 = plt.gca()
-    ax2 = ax1.twinx()
+    # First subplot: Time series
+    ax1_twin = ax1.twinx()
     
     # Plot displacement on left y-axis
     line1 = ax1.plot(time_s, max_displacements, 'b-', label='Displacement')
@@ -144,18 +145,37 @@ def main(time_range=None):
     ax1.tick_params(axis='y', labelcolor='b')
     
     # Plot voltage on right y-axis
-    line2 = ax2.plot(time_s, voltage_kV, 'r-', label='Voltage')
-    ax2.set_ylabel('Voltage (V)', color='r')
-    ax2.tick_params(axis='y', labelcolor='r')
+    line2 = ax1_twin.plot(time_s, voltage_kV, 'r-', label='Voltage')
+    ax1_twin.set_ylabel('Voltage (V)', color='r')
+    ax1_twin.tick_params(axis='y', labelcolor='r')
     
     # Add legend
     lines = line1 + line2
     labels = [l.get_label() for l in lines]
-    ax1.legend(lines, labels, loc='upper right')
+    ax1.legend(lines, labels, loc='upper left')
     
-    plt.title('Membrane Displacement and Voltage Over Time')
-    plt.grid(True)
+    ax1.set_title('Membrane Displacement and Voltage Over Time')
+    ax1.set_ylim(0, 30)
+    ax1.grid(True)
+
+    # Second subplot: Voltage vs Displacement
+    ax2.plot(voltage_kV, max_displacements, '.', markersize=5)
+    ax2.set_xlabel('Voltage (V)')
+    ax2.set_ylabel('Maximum Absolute Z-displacement (mm)')
+    ax2.set_title('Voltage vs Maximum Displacement')
+    ax2.set_ylim(0, 30)
+    ax2.grid(True)
+
+    plt.tight_layout()
     plt.show()
 
 if __name__ == "__main__":
-    main() 
+    # Set time window parameters (in seconds)
+    start_time = 25.0  # Set to None for full range, or specify a value like 1.0
+    end_time = 275.0    # Set to None for full range, or specify a value like 2.0
+    
+    time_range = None
+    if start_time is not None and end_time is not None:
+        time_range = (start_time, end_time)
+    
+    main(time_range) 
