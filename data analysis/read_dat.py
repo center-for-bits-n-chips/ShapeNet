@@ -287,7 +287,7 @@ def plot_multiple_profiles(positions, time, frame_indices, z_scale=5.0):
 
 def main():
     print("\nReading data file...")
-    filename = "data/2025-04-16 pull-in 0.01 mm_per_s.dat"
+    filename = "data/2025-04-16 pull-in 0.5 mm_per_s.dat"
     voltage, positions, time = read_labview_binary(filename, decimate=1)
     print("\nGenerating plots...")
     # Create time series plot

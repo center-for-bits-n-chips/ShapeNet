@@ -60,22 +60,22 @@ def plot_voltage_vs_position_comparison(file1, file2, labels=None, decimate=1, m
     for idx, i in enumerate(marker_indices):
         if idx == 0:  # Only add the label once for each dataset
             plt.plot(voltage1, positions1[:, i, 2],
-                    color=colors1[idx], marker='', linestyle='-',
+                    color=colors1[idx], marker='.', linestyle='-',
                     label=f'{labels[0]} (Marker {i})', alpha=0.7)
         else:
             plt.plot(voltage1, positions1[:, i, 2],
-                    color=colors1[idx], marker='', linestyle='-',
+                    color=colors1[idx], marker='.', linestyle='-',
                     label=f'{labels[0]} (Marker {i})', alpha=0.7)
     
     # Plot second dataset
     for idx, i in enumerate(marker_indices):
         if idx == 0:  # Only add the label once for each dataset
             plt.plot(voltage2, positions2[:, i, 2],
-                    color=colors2[idx], marker='', linestyle='-',
+                    color=colors2[idx], marker='.', linestyle='-',
                     label=f'{labels[1]} (Marker {i})', alpha=0.7)
         else:
             plt.plot(voltage2, positions2[:, i, 2],
-                    color=colors2[idx], marker='', linestyle='-',
+                    color=colors2[idx], marker='.', linestyle='-',
                     label=f'{labels[1]} (Marker {i})', alpha=0.7)
     
     plt.title('Z Position vs Voltage Comparison')
@@ -102,11 +102,11 @@ def main():
     labels = ["open loop", "closed loop"]
     
     # Example: only plot markers 0, 3, and 7
-    marker_indices = [0, 1, 2, 3, 4]
+    marker_indices = [0, 3, 7]
     
     # Separate time ranges for each file
     time_range1 = (0, 790)  # Time range for first file
-    time_range2 = (0, 442)  # Time range for second file
+    time_range2 = (0, 442.1)  # Time range for second file
     
     plot_voltage_vs_position_comparison(
         file1, 
