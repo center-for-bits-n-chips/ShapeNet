@@ -12,3 +12,5 @@ dependencies:
   - pyqt=5.15
   - pyqtgraph=0.13.3
   - pyopengl
+  - pandas
+  - scipy

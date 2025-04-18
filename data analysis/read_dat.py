@@ -178,7 +178,14 @@ def plot_marker_locations(positions, time, frame_index=None):
     
     plt.figure(figsize=(10, 6))
     plt.polar(theta[frame_index], r[frame_index], 'o')
+    
+    # Add text labels for each marker
+    for i in range(len(r[frame_index])):
+        plt.text(theta[frame_index][i], r[frame_index][i], f'M{i}', 
+                ha='center', va='bottom')
+    
     plt.title(f'Marker Locations at t = {time[frame_index]:.2f} s')
+    plt.ylim(0, 250)
     plt.grid(True)
 
 def animate_profile(positions, time, z_scale=5.0, interval=50, save_path='profile_animation.mp4'):
@@ -290,6 +297,11 @@ def main():
     filename = "data/2025-04-16 pull-in 0.5 mm_per_s.dat"
     voltage, positions, time = read_labview_binary(filename, decimate=1)
     print("\nGenerating plots...")
+    
+    # Plot marker locations at different frames
+    plot_marker_locations(positions, time)
+    plt.show()
+            
     # Create time series plot
     plt.figure(figsize=(10, 6))
     
@@ -335,7 +347,7 @@ def main():
     #animate_markers(positions, z_scale=5.0, save_path='marker_animation.mp4')
     
     # Create and save profile animation
-    animate_profile(positions, time, z_scale=1.0, save_path='profile_animation.mp4')
+    #animate_profile(positions, time, z_scale=1.0, save_path='profile_animation.mp4')
 
 
 if __name__ == "__main__":
