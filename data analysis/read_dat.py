@@ -52,7 +52,7 @@ def read_labview_binary(filename, num_markers=8, num_voltages=1, decimate=120):
     positions = np.stack([x_coords, y_coords, z_coords], axis=2)
     
     # Calculate time array
-    original_sample_rate = 120  # Hz
+    original_sample_rate = 100  # Hz
     time = np.arange(num_records) / original_sample_rate  # Time in seconds
     time = time[::decimate]  # Decimate time array to match data
     decimated_rate = original_sample_rate / decimate  # Hz

@@ -95,7 +95,7 @@ def plot_combined_voltage_vs_displacement(dic_directory, dat_file, labels=None, 
     for idx, i in enumerate(marker_indices):
         point_idx = nearest_points[i]
         point_displacements = np.array([df.iloc[point_idx]['z-displacement[mm]'] for df in data_frames])
-        plt.plot(voltage_kV, -point_displacements, color=colors[idx], linewidth=2, marker='.',
+        plt.plot(voltage_kV, -point_displacements, color=colors[idx], linewidth=2, marker='x',
                 label=f'DIC Point {point_idx} (Nearest to Marker {i})')
     
     # Plot marker data
@@ -128,8 +128,8 @@ def plot_combined_voltage_vs_displacement(dic_directory, dat_file, labels=None, 
 
 def main():
     # Example usage
-    dic_directory = '28 mm closed loop lights off take 2'
-    dat_file = "data/2025-04-16 pull-in 30 mm.dat"
+    dic_directory = '28 mm closed loop take 1'
+    dat_file = "data/2025-04-22 28 mm pull-in take 1.dat"
     
     # Custom labels
     labels = ["DIC (Closed Loop)", "Markers (Closed Loop)"]
@@ -147,7 +147,7 @@ def main():
         labels=labels,
         decimate=120,
         marker_indices=marker_indices,
-        dic_time_range=dic_time_range,
+        #dic_time_range=dic_time_range,
         marker_time_range=marker_time_range
     )
 
