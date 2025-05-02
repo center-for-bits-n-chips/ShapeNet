@@ -10,7 +10,7 @@ def read_dic_file(file_path):
     """Read a single DIC CSV file and return the data as a pandas DataFrame."""
     return pd.read_csv(file_path, sep=';')
 
-def get_dic_data(directory):
+def get_dic_data(directory, DIC_sample_rate_s=1):
     """Read all DIC files in the directory and return a list of DataFrames with associated time and voltage data."""
     # Get all CSV files in the directory
     files = sorted(glob(os.path.join(directory, 'd*.csv')))
@@ -18,10 +18,11 @@ def get_dic_data(directory):
     # Read voltage data
     voltage_file = os.path.join(directory, 'V0001.csv')
     if os.path.exists(voltage_file):
-        voltage_df = pd.read_csv(voltage_file, sep=';', skiprows=[1])
+        voltage_df = pd.read_csv(voltage_file, sep=';')
         # Get the voltage from 'Voltage ADC 1 channel 1' column
-        voltage_kV = 6 * voltage_df['Voltage ADC 1 channel 1'].values.astype(float)
-        time_s = 0.001 * voltage_df['Time'].values.astype(float)
+        voltage_kV = 6 * voltage_df['ADC 1 channel 1 [V]'].values.astype(float)
+        time_s = DIC_sample_rate_s * voltage_df['Index'].values.astype(float)
+        #time_s = 0.001 * voltage_df['Time'].values.astype(float)
 
     # Read each file and associate with corresponding time/voltage data
     data_frames = []
@@ -109,7 +110,7 @@ def create_animation(data_frames, output_file='membrane_deformation.gif'):
 
 def main(time_range=None):
     # Directory containing the DIC data
-    directory = '28 mm closed loop lights off take 2'
+    directory = '28 mm closed loop take 1'
     
     # Read all data frames
     print("Reading DIC data files...")
@@ -178,4 +179,4 @@ if __name__ == "__main__":
     if start_time is not None and end_time is not None:
         time_range = (start_time, end_time)
     
-    main(time_range) 
+    main() 

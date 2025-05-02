@@ -30,7 +30,7 @@ def plot_time_series(dic_directory, dat_file, dic_time_range=None, time_shift=0.
         print(f"Plotting data from {start_time:.3f}s to {end_time:.3f}s")
 
     # Read the .dat file data
-    voltage, positions, time = read_labview_binary(dat_file, decimate=120*5)
+    voltage, positions, time = read_labview_binary(dat_file, decimate=100)
     
     # Apply time shift to marker data
     time = time + time_shift
@@ -107,7 +107,7 @@ def create_combined_animation(dic_directory, dat_file, dic_time_range=None, time
         print(f"Plotting data from {start_time:.3f}s to {end_time:.3f}s")
 
     # Read the .dat file data
-    voltage, positions, time = read_labview_binary(dat_file, decimate=120*5)
+    voltage, positions, time = read_labview_binary(dat_file, decimate=100)
     
     # Apply time shift to marker data
     time = time + time_shift
@@ -248,10 +248,10 @@ def create_combined_animation(dic_directory, dat_file, dic_time_range=None, time
 
 def main():
     # Directory containing the DIC data
-    dic_directory = '28 mm closed loop lights off take 2'
+    dic_directory = '28 mm closed loop take 2'
     
     # Path to the .dat file
-    dat_file = 'data/2025-04-03 pull-in 27.5 mm ramp then discharge.dat'
+    dat_file = 'data/2025-04-22 28 mm pull-in take 2.dat'
     
     # Set time window parameters (in seconds)
     start_time = 0.0  # Set to None for full range, or specify a value like 1.0
@@ -262,7 +262,7 @@ def main():
         time_range = (start_time, end_time)
     
     # Set manual time shift (in seconds)
-    time_shift = -25.0  # Adjust this value to align the signals
+    time_shift = -7.0  # Adjust this value to align the signals
     
     # Show time series plot first
     print("Creating time series plot...")
