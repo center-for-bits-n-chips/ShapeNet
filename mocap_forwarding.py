@@ -324,9 +324,9 @@ class MocapServer:
                         self.display.update_coefficients(predicted_coefficients)
             
                         # CENTER LOCATION FROM NN
-                        center_basis_functions = self.generate_basis_functions_for_surface(torch.zeros(1, 1),torch.zeros(1, 1), self.config.n_basis).detach().numpy()
-                        Z_center_np = np.dot(center_basis_functions, predicted_coefficients)
-                        Z_center_shapenet = Z_center_np.item() * self.gap
+                        # center_basis_functions = self.generate_basis_functions_for_surface(torch.zeros(1, 1),torch.zeros(1, 1), self.config.n_basis).detach().numpy()
+                        # Z_center_np = np.dot(center_basis_functions, predicted_coefficients)
+                        # Z_center_shapenet = Z_center_np.item() * self.gap
 
                     format_string = '>' + 'd' * len(flat_positions)
 
