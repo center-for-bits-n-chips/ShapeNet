@@ -27,6 +27,7 @@ class MocapConfig:
     n_basis: int = 2
     model_path: str = 'shape_net_model.pth'
     hidden_size: int = 32
+    NN_enable: bool = False
 
 class MocapServer:
     def __init__(self, config: MocapConfig = MocapConfig()):
@@ -316,14 +317,16 @@ class MocapServer:
                     z_values = self.mesh_marker_pos_mm[:, 2]
                     flat_positions = np.concatenate([x_values, y_values, z_values])
                     
-                     # normalize the input
-                    mocap_input = self.normalize_input(x_values, y_values, z_values, self.radius, self.gap)
-                    predicted_coefficients = self.process_input(mocap_input)
+                    if self.config.NN_enable:
+                        # normalize the input
+                        mocap_input = self.normalize_input(x_values, y_values, z_values, self.radius, self.gap)
+                        predicted_coefficients = self.process_input(mocap_input)
+                        self.display.update_coefficients(predicted_coefficients)
             
-                    # CENTER LOCATION FROM NN
-                    center_basis_functions = self.generate_basis_functions_for_surface(torch.zeros(1, 1),torch.zeros(1, 1), self.config.n_basis).detach().numpy()
-                    Z_center_np = np.dot(center_basis_functions, predicted_coefficients)
-                    Z_center_shapenet = Z_center_np.item() * self.gap
+                        # CENTER LOCATION FROM NN
+                        center_basis_functions = self.generate_basis_functions_for_surface(torch.zeros(1, 1),torch.zeros(1, 1), self.config.n_basis).detach().numpy()
+                        Z_center_np = np.dot(center_basis_functions, predicted_coefficients)
+                        Z_center_shapenet = Z_center_np.item() * self.gap
 
                     format_string = '>' + 'd' * len(flat_positions)
 
@@ -401,7 +404,7 @@ def main():
     if len(sys.argv) > 5:
         options["NN_enable"] = sys.argv[5].lower() != "false"
     # Create config with tare option
-    config = MocapConfig(tare=options["tare"])
+    config = MocapConfig(tare=options["tare"], NN_enable=options["NN_enable"])
     mocap_server = MocapServer(config)
 
     # Initialize NatNet client
