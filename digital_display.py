@@ -10,6 +10,7 @@ class DigitalDisplay:
          self.stop_event = Event()
          self.display_thread = None
          self.last_positions = None
+         self.last_coefficients = None
  
      def clear_screen(self):
          os.system('cls' if os.name == 'nt' else 'clear')
@@ -38,6 +39,13 @@ class DigitalDisplay:
              print("Tare: ON")
          else:
              print("Tare: OFF")
+
+         # Display neural network coefficients if enabled
+         if self.mocap_server.config.NN_enable and self.last_coefficients is not None:
+             print("\n=== Neural Network Coefficients ===")
+             for i, coef in enumerate(self.last_coefficients):
+                 print(f"Coefficient {i+1}: {self.format_value(coef)}")
+         
          print("\nPress Ctrl+C to exit")
  
      def update_loop(self):
@@ -61,3 +69,7 @@ class DigitalDisplay:
      def update_positions(self, positions: Dict[int, List[float]]):
          """Update the stored positions."""
          self.last_positions = positions
+
+     def update_coefficients(self, coefficients: List[float]):
+         """Update the stored neural network coefficients."""
+         self.last_coefficients = coefficients
