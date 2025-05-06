@@ -17,8 +17,8 @@ radius = 250.0 # mm
 
 # Load data from .dat file instead of CSV
 print("Reading data file...")
-dat_filename = "data/2025-04-16 pull-in 30 mm.dat"
-voltage, positions, time = read_labview_binary(dat_filename, decimate=120)  # Using decimate=10 to reduce data similar to original
+dat_filename = "data/2025-04-22 28 mm pull-in take 2.dat"
+voltage, positions, time = read_labview_binary(dat_filename, decimate=100)  # Using decimate=10 to reduce data similar to original
 
 # Calculate cylindrical coordinates
 r, theta, z = cartesian_to_cylindrical(positions)
@@ -113,8 +113,8 @@ y_test = torch.FloatTensor(y_test)
 
 # Define Model & Training Parameters
 input_size = X_train.shape[1]  # Number of features in X_train
-hidden_size = 64
 output_size = 3*n_basis  # Number of basis function coefficients
+hidden_size = 32 #(input_size*output_size)**0.5
 lr = 0.001 # Learning rate
 
 # Initialize the neural network
@@ -122,10 +122,12 @@ model = ShapeNet(input_size, hidden_size, output_size)
 
 # Define the loss function and optimizer
 criterion = LS_PINN_Loss(n_basis, bessel_zeros)
-optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+optimizer = torch.optim.Adam(model.parameters(), lr=lr)#, weight_decay=1e-3)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
+                                                       factor=0.5, patience=125)
 
 # Training loop
-num_epochs = 100000
+num_epochs = 10000
 losses = []
 test_losses = []
 for epoch in range(num_epochs):
@@ -144,9 +146,14 @@ for epoch in range(num_epochs):
         model.eval()
         test_outputs = model(X_test)
         test_loss = criterion(test_outputs, X_test)
+    scheduler.step(test_loss)
 
     losses.append(loss.item())
     test_losses.append(test_loss.item())
+
+    # if scheduler.num_bad_epochs > 100:
+    #     print("Early stop at epoch", epoch)
+    #     break
 
     if (epoch+1) % 100 == 0:
         print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.6f}')

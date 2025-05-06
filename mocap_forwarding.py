@@ -10,6 +10,10 @@ import time
 from threading import Thread, Event
 from digital_display import DigitalDisplay
 
+import torch
+from ShapeNet.ShapeNet import ShapeNet
+from torch.special import bessel_j0, bessel_j1
+from scipy.special import jn_zeros
 np.set_printoptions(linewidth=np.inf)
 
 @dataclass
@@ -19,6 +23,10 @@ class MocapConfig:
     center: np.ndarray = np.array([0, 0, 0])
     display_update_rate: float = 10.0  # Hz
     tare: bool = True  # Whether to subtract the initial offset
+    num_basis: int = 8
+    n_basis: int = 2
+    model_path: str = 'shape_net_model.pth'
+    hidden_size: int = 32
 
 class MocapServer:
     def __init__(self, config: MocapConfig = MocapConfig()):
@@ -28,6 +36,7 @@ class MocapServer:
         self.normal = np.array([0, 0, -1])
         self.center = np.array([0, 0, 0])
         self.radius = 250.0
+        self.gap = 37.0
         self.flag_calibrate = True
         self.plane_normal = np.array([0, 0, -1])
         self.plane_centroid = np.array([0, 0, 0])
@@ -37,11 +46,71 @@ class MocapServer:
         self.offset_samples = []  # Store samples for averaging
         self.num_samples_needed = 10  # Number of samples to average
         self.display = DigitalDisplay(self, config.display_update_rate)
+        if config.NN_enable:
+            # Load the state_dict
+            state_dict = torch.load(config.model_path, map_location=torch.device('cpu'), weights_only=True)  # Use 'cuda' if using GPU
+
+            # Define Model & Training Parameters
+            input_size = 3*config.num_mesh_markers+1  # Number of features in X_train
+            hidden_size = config.hidden_size
+            output_size = 3*config.n_basis  # Number of basis function coefficients
+            # Initialize the neural network
+            self.model = ShapeNet(input_size, hidden_size, output_size)
+
+            # Load the state_dict into the model
+            self.model.load_state_dict(state_dict)
+
+            # Set device (CPU or GPU)
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            self.model.to(device)
+            self.model.eval()
+            self.bessel_zeros = self.create_bessel_zeros_table(config.n_basis)
 
     def __del__(self):
         """Cleanup when the server is destroyed."""
         if hasattr(self, 'display'):
             self.display.stop()
+
+    def process_input(self, input):
+        # Replace this with the real voltage input
+        voltage = [0.0]
+        voltage.extend(input)
+        voltage = np.array(voltage, dtype=np.float32) # NN input must be float
+
+        full_input = torch.from_numpy(voltage)
+        
+        with torch.no_grad():  # Disable gradient computation for evaluation
+            predicted_coefficients = self.model(full_input).numpy().flatten()
+        
+        return predicted_coefficients
+
+    def normalize_input(self, x, y, z, radius, gap):
+        r, theta = self.cartesian_to_polar_numpy(x, y)
+        r_normalized = r / radius
+        z_normalized = z / gap # covert z from meters to mm
+        # Use zip and list comprehension to interleave
+        normalized_input = [item for trio in zip(r_normalized, theta, z_normalized) for item in trio]
+        return normalized_input
+
+    def cartesian_to_polar_numpy(self, x, y):
+        """
+        Convert lists or NumPy arrays of Cartesian coordinates (x, y) to Polar coordinates (r, theta).
+        
+        Parameters:
+        - x (list or np.ndarray): X-coordinates.
+        - y (list or np.ndarray): Y-coordinates.
+        
+        Returns:
+        - r (np.ndarray): Radial distances.
+        - theta (np.ndarray): Angles in radians.
+        """
+        x = np.array(x, dtype=float)
+        y = np.array(y, dtype=float)
+        
+        r = np.hypot(x, y)          # Equivalent to sqrt(x**2 + y**2)
+        theta = np.arctan2(y, x) + np.pi    # Angle in radians between -pi and pi
+        
+        return r, theta
 
     def rotation_matrix_from_vectors(self, a: np.ndarray, b: np.ndarray) -> np.ndarray:
         """Returns the rotation matrix that aligns vector a to b."""
@@ -195,6 +264,34 @@ class MocapServer:
         
         self.display.update_positions(dict(zip(range(len(mesh_marker_pos)), self.mesh_marker_pos_mm)))
 
+    def create_bessel_zeros_table(self, n_basis):
+        """
+        Create a table of Bessel function zeros.
+        
+        Args:
+            n_basis: Number of zeros for basis functions
+            
+        Returns:
+            List of Bessel function zeros
+        """
+        bessel_zeros = []
+        for m in range(2):
+            zeros = jn_zeros(m, n_basis)
+            bessel_zeros.extend(zeros)
+        return bessel_zeros
+
+    def generate_basis_functions_for_surface(self, r, theta, N):
+        basis_functions = []
+        for k in range(N):
+            n = k + 1 # indexing by n = 1, 2, 3
+            phi_n = bessel_j0(self.bessel_zeros[k]*r)
+            phi_n_sin = bessel_j1(self.bessel_zeros[self.n_basis + k]*r) * torch.sin(theta)
+            phi_n_cos = bessel_j1(self.bessel_zeros[self.n_basis + k]*r) * torch.cos(theta)
+            basis_functions.append(phi_n)
+            basis_functions.append(phi_n_sin)
+            basis_functions.append(phi_n_cos)
+        return torch.stack(basis_functions, dim=2)  # Shape: (n_samples, n_basis)
+
     def handle_client(self, conn: socket.socket, addr: Tuple[str, int]) -> None:
         """Handle interaction with a single connected client."""
         print(f"Connected by {addr}")
@@ -211,14 +308,25 @@ class MocapServer:
                     while len(data) >= 8:
                         struct.unpack('>d', data[:8])[0]
                         data = data[8:]
-                    
+                     
                     # Send all marker positions in millimeters
                     # Format: [x1,x2,x3,..., y1,y2,y3,..., z1,z2,z3,...]
                     x_values = self.mesh_marker_pos_mm[:, 0]
                     y_values = self.mesh_marker_pos_mm[:, 1]
                     z_values = self.mesh_marker_pos_mm[:, 2]
                     flat_positions = np.concatenate([x_values, y_values, z_values])
+                    
+                     # normalize the input
+                    mocap_input = self.normalize_input(x_values, y_values, z_values, self.radius, self.gap)
+                    predicted_coefficients = self.process_input(mocap_input)
+            
+                    # CENTER LOCATION FROM NN
+                    center_basis_functions = self.generate_basis_functions_for_surface(torch.zeros(1, 1),torch.zeros(1, 1), self.config.n_basis).detach().numpy()
+                    Z_center_np = np.dot(center_basis_functions, predicted_coefficients)
+                    Z_center_shapenet = Z_center_np.item() * self.gap
+
                     format_string = '>' + 'd' * len(flat_positions)
+
                     conn.sendall(struct.pack(format_string, *flat_positions))
                     
                 except socket.timeout:
@@ -278,7 +386,8 @@ def main():
         "enable_visualization": True,
         "enable_display": True,
         "tare": True,  # Default to true
-        "z_scale": 1.0  # Scale factor for z-direction visualization
+        "z_scale": 1.0,  # Scale factor for z-direction visualization
+        "NN_enable": False  # Default to false
     }
     
     if len(sys.argv) > 1:
@@ -289,7 +398,8 @@ def main():
         options["tare"] = sys.argv[3].lower() != "false"
     if len(sys.argv) > 4:
         options["z_scale"] = float(sys.argv[4])
-
+    if len(sys.argv) > 5:
+        options["NN_enable"] = sys.argv[5].lower() != "false"
     # Create config with tare option
     config = MocapConfig(tare=options["tare"])
     mocap_server = MocapServer(config)
