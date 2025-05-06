@@ -15,7 +15,7 @@ class ShapeNet(nn.Module):
     def forward(self, x):
         out = self.fc1(x)
         out = self.relu(out)
-        out = self.dropout(out)
+        #out = self.dropout(out)
         out = self.fc3(out)
         return out
     

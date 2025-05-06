@@ -19,7 +19,7 @@ from shapenet_utils import (
     create_plotly_animation
 )
 
-def load_and_prepare_data(dat_filename, n_basis, n_markers, radius, gap, decimate=5*120):
+def load_and_prepare_data(dat_filename, n_basis, n_markers, radius, gap, decimate=100):
     """
     Load data from .dat file and prepare for processing.
     
@@ -366,8 +366,8 @@ def plot_max_displacement_vs_voltage(model, X_tensor, y_tensor, bessel_zeros, n_
     
     # Create the plot
     plt.figure(figsize=(10, 6))
-    plt.plot(voltages, max_displacements_actual, 'b-', label='Actual Data', alpha=0.7)
-    plt.plot(voltages, max_displacements_nn, 'r--', label='NN Prediction', alpha=0.7)
+    plt.plot(voltages, max_displacements_actual, 'b.-', label='Actual Data', alpha=0.7)
+    plt.plot(voltages, max_displacements_nn, 'r.-', label='NN Prediction', alpha=0.7)
     
     plt.title('Maximum Displacement vs Voltage')
     plt.xlabel('Voltage (V)')
@@ -395,7 +395,7 @@ def main():
     n_markers = 8  # Number of motion capture markers
     gap = 37.0  # mm
     radius = 250.0  # mm
-    dat_filename = "data/2025-04-16 pull-in 30 mm.dat"
+    dat_filename = "data/2025-04-22 28 mm pull-in take 1.dat"
     model_filename = 'shape_net_model.pth'
     
     # Load and prepare data
@@ -412,8 +412,8 @@ def main():
     
     # Define Model parameters
     input_size = X_tensor.shape[1]  # Number of features in X_tensor
-    hidden_size = 64
     output_size = 3*n_basis  # Number of basis function coefficients
+    hidden_size = 32
     
     # Load the neural network model
     print("\n3. Loading neural network model...")

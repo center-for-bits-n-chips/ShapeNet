@@ -45,7 +45,7 @@ def plot_time_series(dic_directory, dat_file, dic_time_range=None, time_shift=0.
     
     # Plot max DIC displacement
     time_line, = ax.plot(time_s, max_dic_displacement, 
-                        'b-', label='Max DIC Displacement')
+                        'bx-', label='Max DIC Displacement')
     
     # Plot individual marker positions
     marker_lines = []
@@ -58,7 +58,7 @@ def plot_time_series(dic_directory, dat_file, dic_time_range=None, time_shift=0.
     
     # Plot DIC voltage
     dic_voltage_line, = ax_voltage.plot(time_s, voltage_kV, 
-                                       'r.-', label='DIC Voltage')
+                                       'rx-', label='DIC Voltage')
     
     # Plot marker voltage
     marker_voltage_line, = ax_voltage.plot(time, voltage, 
@@ -74,7 +74,7 @@ def plot_time_series(dic_directory, dat_file, dic_time_range=None, time_shift=0.
     # Combine all lines for legend
     all_lines = [time_line] + marker_lines + [dic_voltage_line, marker_voltage_line]
     ax.legend(all_lines, [l.get_label() for l in all_lines], 
-              bbox_to_anchor=(1.2, 1), loc='upper left')
+              bbox_to_anchor=(-0.35, 1), loc='upper left')
     
     ax.set_xlim(0, 300)
     
@@ -204,12 +204,12 @@ def create_combined_animation(dic_directory, dat_file, dic_time_range=None, time
     ax_time_voltage.set_ylabel('Voltage [kV]')
     ax_time.set_title('Displacement and Voltage vs Time')
     ax_time.grid(True)
-    ax_time.set_xlim(0, 300)
+    #ax_time.set_xlim(0, 300)
     
     # Combine all lines for legend
     all_lines = [time_line] + marker_lines + [dic_voltage_line, marker_voltage_line]
     ax_time.legend(all_lines, [l.get_label() for l in all_lines], 
-                  bbox_to_anchor=(1.2, 1), loc='upper left')
+                  bbox_to_anchor=(-1.5, 1), loc='upper left')
     
     def update(frame):
         """Update function for animation."""
@@ -248,10 +248,10 @@ def create_combined_animation(dic_directory, dat_file, dic_time_range=None, time
 
 def main():
     # Directory containing the DIC data
-    dic_directory = '28 mm closed loop take 2'
+    dic_directory = '28 mm closed loop take 1'
     
     # Path to the .dat file
-    dat_file = 'data/2025-04-22 28 mm pull-in take 2.dat'
+    dat_file = 'data/2025-04-22 28 mm pull-in take 1.dat'
     
     # Set time window parameters (in seconds)
     start_time = 0.0  # Set to None for full range, or specify a value like 1.0
@@ -262,7 +262,7 @@ def main():
         time_range = (start_time, end_time)
     
     # Set manual time shift (in seconds)
-    time_shift = -7.0  # Adjust this value to align the signals
+    time_shift = -7.5  # Adjust this value to align the signals
     
     # Show time series plot first
     print("Creating time series plot...")
