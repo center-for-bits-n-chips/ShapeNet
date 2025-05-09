@@ -195,25 +195,29 @@ def create_matplotlib_animation(model, X_tensor, y_tensor, n_basis, bessel_zeros
         # Calculate the reconstructed shape
         reconstructed_shape = np.dot(full_basis_functions, predicted_coefficients)
         
+        # Calculate max displacement
+        max_displacement = np.max(np.abs(gap * reconstructed_shape))
+        
         # Plotting the data points
         points = ax.scatter(radius*X_plot_sparse.numpy(), radius*Y_plot_sparse.numpy(), 
                            gap*Z_plot_sparse.numpy(), color='r', s=50, label='Data points')
         
         # Plot NN output surface
         surface = ax.plot_surface(radius*X_plot.numpy(), radius*Y_plot.numpy(), 
-                                 gap*reconstructed_shape, alpha=0.5, cmap='plasma')
+                                 gap*reconstructed_shape, alpha=0.5, cmap='plasma',
+                                 vmin=min_z, vmax=max_z)
         
         # Setup consistent view
         ax.view_init(elev=30, azim=frame % 360, roll=0)  # Rotate view for better visualization
         ax.set_zlim(min_z, max_z)
-        ax.set_title(f'Neural Network Prediction at Voltage = {sample_q:.2f}V')
+        ax.set_title(f'Neural Network Prediction at Voltage = {sample_q:.2f}V\nMax Displacement = {max_displacement:.2f}mm')
         ax.set_xlabel('X (mm)')
         ax.set_ylabel('Y (mm)')
         ax.set_zlabel('Z (mm)')
         
         return [surface, points]
     
-    frames = min(len(X_tensor), 50)  # Limit to 50 frames to avoid excessive rendering time
+    frames = min(len(X_tensor), 400)  # Limit to 400 frames to avoid excessive rendering time
     ani = FuncAnimation(fig, update, frames=frames, interval=200, blit=False)
     
     # Save animation
@@ -224,7 +228,6 @@ def create_matplotlib_animation(model, X_tensor, y_tensor, n_basis, bessel_zeros
     print(f"Saved matplotlib animation to '{output_path}'")
     
     return output_path
-
 def create_plotly_animation(model, X_tensor, y_tensor, n_basis, bessel_zeros, radius, gap):
     """
     Creates a plotly-based interactive animation of the model predictions.
@@ -275,7 +278,7 @@ def create_plotly_animation(model, X_tensor, y_tensor, n_basis, bessel_zeros, ra
     z_min, z_max = min(z_values), max(z_values)
     
     # Create frames
-    for idx in range(min(len(X_tensor), 100)):  # Limit to 100 frames
+    for idx in range(min(len(X_tensor), 400)):  # Limit to 400 frames
         sample_X = X_tensor[idx]
         sample_q = sample_X[0].item()  # Get voltage value
         

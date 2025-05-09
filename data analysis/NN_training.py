@@ -7,6 +7,8 @@ from ShapeNet.ShapeNet import ShapeNet, LS_PINN_Loss
 from torch.special import bessel_j0, bessel_j1
 from sklearn.model_selection import train_test_split
 from read_dat import read_labview_binary, cartesian_to_cylindrical
+import itertools
+import random  # Add this import for random sampling
 
 n_basis = 2  # Number of zeros for basis functions
 n_markers = 8 # Number of motion capture markers
@@ -52,30 +54,59 @@ def generate_basis_functions(r, theta, N):
     return torch.stack(basis_functions, dim=1)  # Shape: (n_markers, n_basis)
 
 # Generate shapes data table
+n_permutations = 1  # Number of random permutations to generate per shape
 for i in range(n_shapes):
     volt = voltage[i]
     mocap_z = torch.tensor(z[i] * 1/gap)  # normalized
     mocap_z = - mocap_z  # NOTE THE MINUS SIGN
     
-    # Flatten the R_sparse and Theta_sparse to create a single row
-    row = [i + 1, volt]  # Start with the shape index
-    for j in range(n_markers):
-        row.append(mocap_r[j].item())      # Add sampled r
-        row.append(mocap_theta[j].item())  # Add sampled θ
-        row.append(mocap_z[j].item())      # Add sampled z
-
-    # Generate basis functions for R_sparse
+    # Create marker data as a list of tuples (r, theta, z)
+    marker_data = [(mocap_r[j].item(), mocap_theta[j].item(), mocap_z[j].item()) for j in range(n_markers)]
+    
+    # First add the original ordering
+    row = [i + 1, volt]
+    for marker in marker_data:
+        row.extend(marker)
+    
+    # Generate basis functions for original data
     basis_functions = generate_basis_functions(mocap_r, mocap_theta, n_basis)
-    basis_functions_np = basis_functions.detach().numpy()  # Shape: (n_markers, n_basis)
-    mocap_z_np = mocap_z.detach().numpy()  # Shape: (n_markers, 1)
-
+    basis_functions_np = basis_functions.detach().numpy()
+    mocap_z_np = mocap_z.detach().numpy().reshape(-1, 1)
+    
     # Use least squares to find coefficients
     LS_coef, residuals, rank, s = np.linalg.lstsq(basis_functions_np, mocap_z_np, rcond=None)
-
-    # Add the coefficients y_linear at the end
-    row.extend(LS_coef.flatten().tolist())  # y_linear is shape (n_basis, 1), flatten to 1D
-
+    row.extend(LS_coef.flatten().tolist())
     shape_data.append(row)
+    
+    # Generate random permutations
+    for _ in range(n_permutations):
+        # Create a random permutation of the marker data
+        perm = random.sample(marker_data, len(marker_data))
+        
+        # Start with the shape index and voltage
+        row = [i + 1, volt]
+        
+        # Flatten the permuted marker data
+        for marker in perm:
+            row.extend(marker)
+        
+        # Generate basis functions for the permuted R and Theta values
+        perm_r = torch.tensor([m[0] for m in perm])
+        perm_theta = torch.tensor([m[1] for m in perm])
+        perm_z = torch.tensor([m[2] for m in perm])
+        
+        # Generate basis functions for the permuted data
+        basis_functions = generate_basis_functions(perm_r, perm_theta, n_basis)
+        basis_functions_np = basis_functions.detach().numpy()
+        perm_z_np = perm_z.detach().numpy().reshape(-1, 1)
+        
+        # Use least squares to find coefficients
+        LS_coef, residuals, rank, s = np.linalg.lstsq(basis_functions_np, perm_z_np, rcond=None)
+        
+        # Add the coefficients
+        row.extend(LS_coef.flatten().tolist())
+        
+        shape_data.append(row)
 
 # Create column names
 columns = ['n', 'v']
