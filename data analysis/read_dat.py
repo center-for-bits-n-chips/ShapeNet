@@ -21,7 +21,7 @@ def read_labview_binary(filename, num_markers=15, num_voltages=11, decimate=120)
         time: 1D array of time values in seconds
     """
     # Calculate total values per record
-    values_per_record = 1 + (num_markers * 3) + (num_voltages - 1)  # first voltage + marker data + remaining voltages
+    values_per_record = (num_markers * 3) + num_voltages  # first voltage + marker data + remaining voltages
     
     # Read the entire file as double-precision floats
     data = np.fromfile(filename, dtype='<f8')
@@ -371,7 +371,7 @@ def main():
                 marker='.')
     
     # Read and plot COMSOL data
-    comsol_gap, comsol_voltage = read_comsol_data("comsol/pull in 50-cm diameter 35-mm gap.txt")
+    comsol_gap, comsol_voltage = read_comsol_data("comsol/pull in 50-cm diameter 35-mm gap 1 N_per_m.txt")
     # Convert normalized gap to actual gap (assuming 35mm initial gap)
     actual_gap = comsol_gap * 35  # mm
     plt.plot(comsol_voltage, actual_gap, 'k--', label='COMSOL Simulation', linewidth=2)
