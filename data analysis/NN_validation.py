@@ -386,6 +386,72 @@ def plot_max_displacement_vs_voltage(model, X_tensor, y_tensor, bessel_zeros, n_
     
     return filename
 
+def plot_coefficients_vs_voltage(model, X_tensor, y_tensor):
+    """
+    Create a plot showing how each coefficient changes with voltage.
+    
+    Args:
+        model: ShapeNet model
+        X_tensor: Input data tensor
+        y_tensor: Target data tensor
+        
+    Returns:
+        Path to the saved plot image
+    """
+    # Initialize lists to store results
+    voltages = []
+    predicted_coefficients = []
+    actual_coefficients = []
+    
+    # Process each sample
+    for idx in range(len(X_tensor)):
+        sample_X = X_tensor[idx]
+        sample_y = y_tensor[idx]
+        voltage = sample_X[0].item()
+        voltages.append(voltage)
+        
+        # Get actual coefficients
+        actual_coefficients.append(sample_y.numpy().flatten())
+        
+        # Get NN predictions
+        with torch.no_grad():
+            predicted = model(sample_X.unsqueeze(0)).numpy().flatten()
+            predicted_coefficients.append(predicted)
+    
+    # Convert to numpy arrays
+    predicted_coefficients = np.array(predicted_coefficients)
+    actual_coefficients = np.array(actual_coefficients)
+    
+    # Create subplots for each coefficient
+    n_coefficients = predicted_coefficients.shape[1]
+    n_cols = 2
+    n_rows = (n_coefficients + 1) // 2
+    
+    plt.figure(figsize=(12, 4*n_rows))
+    
+    for i in range(n_coefficients):
+        plt.subplot(n_rows, n_cols, i+1)
+        plt.plot(voltages, actual_coefficients[:, i], 'b.-', label='Actual', alpha=0.7)
+        plt.plot(voltages, predicted_coefficients[:, i], 'r.-', label='NN Prediction', alpha=0.7)
+        plt.title(f'Coefficient {i+1} vs Voltage')
+        plt.xlabel('Voltage (V)')
+        plt.ylabel('Coefficient Value')
+        plt.grid(True)
+        plt.legend()
+    
+    plt.tight_layout()
+    
+    # Create directory for plots if it doesn't exist
+    os.makedirs("coefficient_plots", exist_ok=True)
+    
+    # Save the plot
+    filename = "coefficient_plots/coefficients_vs_voltage.png"
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"Saved coefficients vs voltage plot to {filename}")
+    
+    return filename
+
 def main():
     """Main function to run validation and visualization."""
     print("Starting ShapeNet validation and visualization...")
@@ -432,6 +498,10 @@ def main():
     # Plot maximum displacement vs voltage
     print("\n6. Plotting maximum displacement vs voltage...")
     max_displacement_file = plot_max_displacement_vs_voltage(model, X_tensor, y_tensor, bessel_zeros, n_basis, radius, gap)
+    
+    # Plot coefficients vs voltage
+    print("\n7. Plotting coefficients vs voltage...")
+    coefficients_file = plot_coefficients_vs_voltage(model, X_tensor, y_tensor)
     
     print("\nValidation and visualization complete!")
     # print(f"Created {len(created_files)} visualization files and animations.")
