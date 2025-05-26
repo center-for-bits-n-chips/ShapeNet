@@ -162,3 +162,8 @@ cython_debug/
 #.idea/
 
 .DS_Store
+
+# Analysis output folders
+data\ analysis/analysis\ output/
+data\ analysis/error_animations/
+data\ analysis/dic_nn_comparisons/

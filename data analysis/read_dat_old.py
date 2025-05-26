@@ -4,15 +4,14 @@ from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.animation as animation
 from matplotlib.animation import FFMpegWriter
 
-def read_labview_binary(filename, num_markers=15, num_voltages=11, decimate=120):
+def read_labview_binary(filename, num_markers=8, num_voltages=1, decimate=120):
     """
-    Reads a binary file containing interleaved voltage and position data.
-    Format: [voltage1, marker_data, voltage2...voltageN]
+    Reads a binary file containing voltage and position data.
     
     Args:
         filename: Path to the binary file
-        num_markers: Number of markers in the data (default: 15)
-        num_voltages: Number of voltage measurements per record (default: 11)
+        num_markers: Number of markers in the data (default: 8)
+        num_voltages: Number of voltage measurements per record (default: 1)
         decimate: Take every Nth sample (default: 120)
     
     Returns:
@@ -21,7 +20,7 @@ def read_labview_binary(filename, num_markers=15, num_voltages=11, decimate=120)
         time: 1D array of time values in seconds
     """
     # Calculate total values per record
-    values_per_record = 1 + (num_markers * 3) + (num_voltages - 1)  # first voltage + marker data + remaining voltages
+    values_per_record = num_voltages + (num_markers * 3)  # voltages + (markers * xyz)
     
     # Read the entire file as double-precision floats
     data = np.fromfile(filename, dtype='<f8')
@@ -40,22 +39,14 @@ def read_labview_binary(filename, num_markers=15, num_voltages=11, decimate=120)
     # Decimate the data
     data = data[::decimate]
 
-    # Extract first voltage
-    first_voltage = data[:, 0]
-    
-    # Extract marker data
-    marker_data = data[:, 1:1+(num_markers*3)]
-    
-    # Extract remaining voltages
-    remaining_voltages = data[:, 1+(num_markers*3):]
-    
-    # Combine all voltages
-    voltages = np.column_stack((first_voltage, remaining_voltages))
+    # Split into voltage and position data
+    voltage = data[:, :num_voltages].squeeze()  # squeeze in case num_voltages=1
+    positions_flat = data[:, num_voltages:]  # Shape is (num_records, 24)
     
     # Reorganize position data from [x1,x2,...,y1,y2,...,z1,z2,...] to (num_records, num_markers, xyz)
-    x_coords = marker_data[:, :num_markers]  # First 15 values are x coordinates
-    y_coords = marker_data[:, num_markers:2*num_markers]  # Next 15 are y coordinates
-    z_coords = marker_data[:, 2*num_markers:]  # Last 15 are z coordinates
+    x_coords = positions_flat[:, :num_markers]  # First 8 values are x coordinates
+    y_coords = positions_flat[:, num_markers:2*num_markers]  # Next 8 are y coordinates
+    z_coords = positions_flat[:, 2*num_markers:]  # Last 8 are z coordinates
     
     # Stack the coordinates to create (num_records, num_markers, 3) array
     positions = np.stack([x_coords, y_coords, z_coords], axis=2)
@@ -71,7 +62,7 @@ def read_labview_binary(filename, num_markers=15, num_voltages=11, decimate=120)
     print(f"Decimated sample rate: {decimated_rate:.2f} Hz")
     print(f"Number of decimated samples: {len(data)}")
     
-    return voltages, positions, time
+    return voltage, positions, time
 
 def create_circle_points(radius=250.0, num_points=100):
     """Create points for a circle in the XY plane centered at origin."""
@@ -267,7 +258,6 @@ def animate_profile(positions, time, z_scale=5.0, interval=50, save_path='profil
     plt.close()
     
     print(f"Profile animation saved to {save_path}")
-
 def plot_multiple_profiles(positions, time, frame_indices, z_scale=5.0):
     """
     Plot multiple profiles on the same figure.
@@ -321,13 +311,10 @@ def read_comsol_data(filename):
 
 def main():
     print("\nReading data file...")
-    num_markers = 15
-    num_voltages = 11
-    
-    filename = "data/2025-05-25 big arc pull-in.dat"
-    voltages, positions, time = read_labview_binary(filename, num_markers=num_markers, num_voltages=num_voltages, decimate=1)
+    filename = "data/data before full amplifier logging/2025-04-22 28 mm pull-in take 1.dat"
+    voltage, positions, time = read_labview_binary(filename, decimate=1)
     print("\nGenerating plots...")
-
+    
     # Plot marker locations at different frames
     plot_marker_locations(positions, time)
     plt.show()
@@ -335,17 +322,12 @@ def main():
     # Create time series plot
     plt.figure(figsize=(10, 6))
     
-    # Plot voltages
-    colors_voltage = plt.cm.Greys(np.linspace(1.0, 0.2, num_voltages))  # Different greys for each voltage, darkest first
-    for i in range(num_voltages):
-        plt.plot(time, voltages[:, i],
-                label=f'Voltage {i}',
-                color=colors_voltage[i],
-                marker='.')
+    # Plot voltage
+    plt.plot(time, voltage, label='Voltage', color='black')
     
     # Plot each marker's z position
-    colors = plt.cm.rainbow(np.linspace(0, 1, num_markers))  # Different color for each marker
-    for i in range(num_markers):
+    colors = plt.cm.rainbow(np.linspace(0, 1, 8))  # Different color for each marker
+    for i in range(8):
         plt.plot(time, positions[:, i, 2],
                 label=f'Marker {i} z',
                 color=colors[i], 
@@ -354,22 +336,18 @@ def main():
     plt.title('Motion Capture and Voltage Data vs Time')
     plt.xlabel('Time [s]')
     plt.ylabel('[mm], [kV]')
-    plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.grid(True)
-
-    plt.show()
     
     # Create voltage vs position plot
-    end_index = 17500
+    end_index = 41800
     plt.figure(figsize=(10, 6))
-    
-    # Plot experimental data
-    for i in range(num_markers):
-        plt.plot(voltages[:end_index, 0], positions[:end_index, i, 2],
+    for i in range(8):
+        plt.plot(voltage[:end_index], positions[:end_index, i, 2],
                 label=f'Marker {i} z',
                 color=colors[i], 
                 marker='.')
-    
+        
     # Read and plot COMSOL data
     comsol_gap, comsol_voltage = read_comsol_data("comsol/pull in 50-cm diameter 35-mm gap.txt")
     # Convert normalized gap to actual gap (assuming 35mm initial gap)
@@ -379,7 +357,7 @@ def main():
     plt.title('Z Position vs Voltage')
     plt.xlabel('Voltage [kV]')
     plt.ylabel('Z Position [mm]')
-    plt.xlim(0, max(voltages[:, 0]) * 1.1)
+    plt.xlim(0, max(voltage) * 1.1)
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.grid(True)
 

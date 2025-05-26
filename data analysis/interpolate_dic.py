@@ -150,7 +150,6 @@ def create_shape_animation(x_centered, y_centered, z, coefficients, n_basis=5, r
     # Generate full basis functions for plotting
     full_basis_functions = generate_basis_functions_for_plot(R, Theta, n_basis, bessel_zeros).detach().numpy()
     
-    
     # Create frames for animation
     frames = []
     
@@ -171,7 +170,9 @@ def create_shape_animation(x_centered, y_centered, z, coefficients, n_basis=5, r
                         size=2,
                         color=z[frame_idx],
                         colorscale='Viridis',
-                        opacity=0.8
+                        opacity=0.8,
+                        cmin=-30,
+                        cmax=0
                     ),
                     name='Point Cloud'
                 ),
@@ -181,7 +182,9 @@ def create_shape_animation(x_centered, y_centered, z, coefficients, n_basis=5, r
                     z=Z,
                     colorscale='Viridis',
                     opacity=0.8,
-                    showscale=frame_idx == 0,  # Only show colorbar in first frame
+                    showscale=True,  # Show colorbar on every frame
+                    cmin=-30,  # Fix color scale minimum
+                    cmax=0,    # Fix color scale maximum
                     name='Reconstructed Surface'
                 )
             ],
@@ -197,12 +200,12 @@ def create_shape_animation(x_centered, y_centered, z, coefficients, n_basis=5, r
     
      # Add animation controls
     fig.update_layout(
-        title="ShapeNet Neural Network Prediction Animation",
+        title="Interpolated DIC Animation",
         scene=dict(
             xaxis_title='X (mm)',
             yaxis_title='Y (mm)',
             zaxis_title='Z (mm)',
-            zaxis=dict(range=[-30, 0]),  # Set z limits from -30 to 0
+            zaxis=dict(range=[-30, 5]),  # Set z limits from -30 to 0
             camera=dict(
                 eye=dict(x=1.5, y=1.5, z=1.2)
             )
@@ -273,10 +276,9 @@ def create_shape_animation(x_centered, y_centered, z, coefficients, n_basis=5, r
     print(f"Saved interactive Plotly animation to '{output_path}'")
     
     return output_path
-
 def main():
     # Directory containing the DIC data
-    directory = '28 mm closed loop lights off take 2'
+    directory = '28 mm closed loop take 1'
     
     # Read DIC data
     print("Reading DIC data files...")
@@ -284,9 +286,9 @@ def main():
     print(f"Successfully read {len(data_frames)} frames")
     
     # Initialize arrays to store coefficients and errors
-    n_basis = 5
+    n_basis = 2
     all_coefficients = np.zeros((len(data_frames), 3 * n_basis))
-    all_mse = np.zeros(len(data_frames))
+    all_rmse = np.zeros(len(data_frames))
     
     # Store centered coordinates for animation
     x_centered_list = []
@@ -309,7 +311,7 @@ def main():
         
         # Store results
         all_coefficients[frame_idx] = coefficients
-        all_mse[frame_idx] = np.mean((z - reconstructed_z)**2)
+        all_rmse[frame_idx] = np.sqrt(np.mean((z - reconstructed_z)**2))
         
         # Store coordinates for animation
         x_centered_list.append(x_centered)
@@ -317,7 +319,7 @@ def main():
         z_list.append(z)
         
         # Print fitting statistics
-        print(f"Mean Squared Error: {all_mse[frame_idx]:.4f}")
+        print(f"Root Mean Squared Error: {all_rmse[frame_idx]:.4f}")
         print(f"Coefficients: {coefficients}")
     
     # Create animation
@@ -328,9 +330,9 @@ def main():
     
     # Plot mean squared error over time
     plt.figure(figsize=(10, 5))
-    plt.plot(time_s, all_mse, 'b-')
+    plt.plot(time_s, all_rmse, 'b-')
     plt.xlabel('Time (s)')
-    plt.ylabel('Mean Squared Error (mm²)')
+    plt.ylabel('Root Mean Squared Error (mm)')
     plt.title('Fitting Error Over Time')
     plt.grid(True)
     plt.show()
