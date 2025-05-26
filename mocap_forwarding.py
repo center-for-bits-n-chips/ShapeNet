@@ -18,7 +18,7 @@ np.set_printoptions(linewidth=np.inf)
 
 @dataclass
 class MocapConfig:
-    num_mesh_markers: int = 8
+    num_mesh_markers: int = 15
     z_axis: np.ndarray = np.array([0, 0, -1])
     center: np.ndarray = np.array([0, 0, 0])
     display_update_rate: float = 10.0  # Hz
