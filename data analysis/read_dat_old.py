@@ -349,7 +349,7 @@ def main():
                 marker='.')
         
     # Read and plot COMSOL data
-    comsol_gap, comsol_voltage = read_comsol_data("comsol/pull in 50-cm diameter 35-mm gap.txt")
+    comsol_gap, comsol_voltage = read_comsol_data("comsol/pull in 50-cm diameter 35-mm gap varying tension.txt")
     # Convert normalized gap to actual gap (assuming 35mm initial gap)
     actual_gap = comsol_gap * 35  # mm
     plt.plot(comsol_voltage, actual_gap, 'k--', label='COMSOL Simulation', linewidth=2)

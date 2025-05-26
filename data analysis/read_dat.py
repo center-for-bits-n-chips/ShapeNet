@@ -40,17 +40,11 @@ def read_labview_binary(filename, num_markers=15, num_voltages=11, decimate=120)
     # Decimate the data
     data = data[::decimate]
 
-    # Extract first voltage
-    first_voltage = data[:, 0]
+    # Extract voltages
+    voltages = data[:, :num_voltages]
     
     # Extract marker data
-    marker_data = data[:, 1:1+(num_markers*3)]
-    
-    # Extract remaining voltages
-    remaining_voltages = data[:, 1+(num_markers*3):]
-    
-    # Combine all voltages
-    voltages = np.column_stack((first_voltage, remaining_voltages))
+    marker_data = data[:, num_voltages:]
     
     # Reorganize position data from [x1,x2,...,y1,y2,...,z1,z2,...] to (num_records, num_markers, xyz)
     x_coords = marker_data[:, :num_markers]  # First 15 values are x coordinates
@@ -302,12 +296,13 @@ def plot_multiple_profiles(positions, time, frame_indices, z_scale=5.0):
     plt.legend()
     plt.grid(True)
 
-def read_comsol_data(filename):
+def read_comsol_data(filename, set_index=0):
     """
     Read COMSOL simulation data from a text file.
     
     Args:
         filename: Path to the COMSOL data file
+        set_index: Index of the data set to read (0-4)
         
     Returns:
         normalized_gap: Array of normalized gap values
@@ -315,8 +310,12 @@ def read_comsol_data(filename):
     """
     # Skip the header lines (first 8 lines)
     data = np.loadtxt(filename, skiprows=8)
-    normalized_gap = data[:, 0]
-    voltage = data[:, 1]
+    # Each set has 81 points
+    points_per_set = 90
+    start_idx = set_index * points_per_set
+    end_idx = (set_index + 1) * points_per_set
+    normalized_gap = data[start_idx:end_idx, 0]
+    voltage = data[start_idx:end_idx, 1]
     return normalized_gap, voltage
 
 def main():
@@ -324,7 +323,7 @@ def main():
     num_markers = 15
     num_voltages = 11
     
-    filename = "data/2025-05-25 big arc pull-in.dat"
+    filename = "data/2025-05-26 15 mm open loop ramp 0.05 mm_per_s.dat"
     voltages, positions, time = read_labview_binary(filename, num_markers=num_markers, num_voltages=num_voltages, decimate=1)
     print("\nGenerating plots...")
 
@@ -360,18 +359,18 @@ def main():
     plt.show()
     
     # Create voltage vs position plot
-    end_index = 17500
+    end_index = 32000
     plt.figure(figsize=(10, 6))
     
     # Plot experimental data
-    for i in range(num_markers):
+    for i in [4]:
         plt.plot(voltages[:end_index, 0], positions[:end_index, i, 2],
                 label=f'Marker {i} z',
                 color=colors[i], 
                 marker='.')
     
-    # Read and plot COMSOL data
-    comsol_gap, comsol_voltage = read_comsol_data("comsol/pull in 50-cm diameter 35-mm gap 1 N_per_m.txt")
+    # Read and plot COMSOL data (using the first set)
+    comsol_gap, comsol_voltage = read_comsol_data("comsol/pull in 50-cm diameter 35-mm gap varying tension.txt", set_index=2)
     # Convert normalized gap to actual gap (assuming 35mm initial gap)
     actual_gap = comsol_gap * 35  # mm
     plt.plot(comsol_voltage, actual_gap, 'k--', label='COMSOL Simulation', linewidth=2)
