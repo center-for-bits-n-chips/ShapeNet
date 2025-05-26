@@ -200,7 +200,7 @@ def create_shape_animation(x_centered, y_centered, z, coefficients, n_basis=5, r
     
      # Add animation controls
     fig.update_layout(
-        title="ShapeNet Neural Network Prediction Animation",
+        title="Interpolated DIC Animation",
         scene=dict(
             xaxis_title='X (mm)',
             yaxis_title='Y (mm)',
@@ -286,9 +286,9 @@ def main():
     print(f"Successfully read {len(data_frames)} frames")
     
     # Initialize arrays to store coefficients and errors
-    n_basis = 5
+    n_basis = 2
     all_coefficients = np.zeros((len(data_frames), 3 * n_basis))
-    all_mse = np.zeros(len(data_frames))
+    all_rmse = np.zeros(len(data_frames))
     
     # Store centered coordinates for animation
     x_centered_list = []
@@ -311,7 +311,7 @@ def main():
         
         # Store results
         all_coefficients[frame_idx] = coefficients
-        all_mse[frame_idx] = np.sqrt(np.mean((z - reconstructed_z)**2))
+        all_rmse[frame_idx] = np.sqrt(np.mean((z - reconstructed_z)**2))
         
         # Store coordinates for animation
         x_centered_list.append(x_centered)
@@ -319,7 +319,7 @@ def main():
         z_list.append(z)
         
         # Print fitting statistics
-        print(f"Mean Squared Error: {all_mse[frame_idx]:.4f}")
+        print(f"Mean Squared Error: {all_rmse[frame_idx]:.4f}")
         print(f"Coefficients: {coefficients}")
     
     # Create animation
@@ -330,7 +330,7 @@ def main():
     
     # Plot mean squared error over time
     plt.figure(figsize=(10, 5))
-    plt.plot(time_s, all_mse, 'b-')
+    plt.plot(time_s, all_rmse, 'b-')
     plt.xlabel('Time (s)')
     plt.ylabel('Root Mean Squared Error (mm)')
     plt.title('Fitting Error Over Time')
