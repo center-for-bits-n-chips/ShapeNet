@@ -307,7 +307,9 @@ class MocapServer:
                     current_time = time.time()
                     if current_time - self.last_update_time > TIMEOUT_THRESHOLD:
                         print(f"Connection with {addr} timed out - no marker updates received for {TIMEOUT_THRESHOLD*1000:.0f}ms")
-                        break
+                        print("ERROR: Motion capture data timeout - exiting program")
+                        conn.close()
+                        sys.exit(1)  # Exit with error code 1
 
                     data = conn.recv(1024)
                     if not data:
@@ -353,7 +355,6 @@ class MocapServer:
 
         # Only proceed if we have all required markers
         if not (len(self.mesh_marker_positions) == self.config.num_mesh_markers):
-            print(f"OH NOOOO!!!")
             return
 
         # Calculate rim parameters once
