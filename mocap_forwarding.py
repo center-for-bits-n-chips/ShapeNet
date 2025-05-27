@@ -48,6 +48,7 @@ class MocapServer:
         self.display = DigitalDisplay(self, config.display_update_rate)
         self.last_update_time = time.time()  # Add timestamp for tracking updates
         self.voltage_data = None  # Store the latest voltage data
+        self.last_coefficients = None  # Store the latest neural network coefficients
         if config.NN_enable:
             # Load the state_dict
             state_dict = torch.load(config.model_path, map_location=torch.device('cpu'), weights_only=True)  # Use 'cuda' if using GPU
@@ -83,6 +84,7 @@ class MocapServer:
         
         with torch.no_grad():  # Disable gradient computation for evaluation
             predicted_coefficients = self.model(full_input).numpy().flatten()
+            self.last_coefficients = predicted_coefficients  # Store the coefficients
         
         return predicted_coefficients
 
