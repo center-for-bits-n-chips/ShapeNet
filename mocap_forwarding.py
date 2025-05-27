@@ -321,7 +321,6 @@ class MocapServer:
                     while len(data) >= 8:
                         voltage = struct.unpack('>d', data[:8])[0]  # Unpack 8 bytes as big-endian double
                         data = data[8:]  # Move to next 8 bytes
-                    print('Voltage data: ', voltage)
                     self.voltage_data = voltage  # Store the voltage data
                     
                     # Send all marker positions in millimeters
