@@ -333,11 +333,9 @@ class MocapServer:
                     flat_positions = np.concatenate([x_values, y_values, z_values])
                     
                     if self.config.NN_enable:
-                        print("NN enabled, processing input...")
                         # normalize the input
                         mocap_input = self.normalize_input(x_values, y_values, z_values, self.radius, self.gap)
                         predicted_coefficients = self.process_input(mocap_input)
-                        print("Predicted coefficients:", predicted_coefficients)
                         self.last_coefficients = predicted_coefficients
                         self.display.update_coefficients(predicted_coefficients)
 
@@ -407,8 +405,7 @@ class MocapServer:
                 }
                 
                 # Add neural network coefficients if available
-                if self.config.NN_enable and hasattr(self, 'last_coefficients'):
-                    print("MocapServer: Adding coefficients to data package:", self.last_coefficients)
+                if self.config.NN_enable and self.last_coefficients is not None:
                     data_package['coefficients'] = self.last_coefficients
             
             # Send data to visualization process if queue isn't full
