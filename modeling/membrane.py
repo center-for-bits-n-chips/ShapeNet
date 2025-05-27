@@ -169,7 +169,7 @@ class PseudoArcLengthContinuation:
 
         for i in range(self.max_steps):
             if i % self.save_every == 0:
-                print(f"Iteration {i}, λ = {lam:.6f}, a = {a}")
+                print(f"Iteration {i}, λ = {lam:.6f}")
                 
             x_prev = np.concatenate([a, [lam]])
             x_pred = x_prev + self.ds * t
@@ -199,7 +199,28 @@ class PseudoArcLengthContinuation:
                 path.append((a.copy(), lam))
             
         return path
-    
+
+    def reconstruct_shape(self, a):
+        """
+        Reconstruct the full shape using the coefficients a.
+        Returns the displacement field u(r,θ) as a tensor.
+        """
+        # Initialize displacement field
+        u = torch.zeros_like(self.R)
+        
+        # Add contribution from each basis function
+        for i, entry in enumerate(self.basis):
+            u += a[i] * entry['fn'](self.R, self.Θ)
+            
+        return u
+
+    def get_max_displacement(self, a):
+        """
+        Get the maximum displxacement for a given set of coefficients.
+        """
+        u = self.reconstruct_shape(a)
+        return torch.max(torch.abs(u)).item()
+
 def main():
     # choose which zeros of J0/J1 to include
     zeros_list = [1, 2, 3]
@@ -207,11 +228,11 @@ def main():
     cont = PseudoArcLengthContinuation(
         zeros_list=zeros_list,
         ds=0.01,
-        max_steps=120,
+        max_steps=200,
         newton_tol=1e-6,
         Nr=200,
         Nθ=400,
-        save_every=1
+        save_every=10
     )
 
     # initial flat solution
@@ -220,14 +241,64 @@ def main():
 
     path = cont.continue_(a0, lam0)
 
+    # Extract data for plotting
     lam_vals = [p[1] for p in path]
-    a1_vals  = [p[0][0] for p in path]
+    max_disp = [cont.get_max_displacement(p[0]) for p in path]
+    
+    # Extract axisymmetric mode coefficients (every 3rd value)
+    axisym_coeff = [[p[0][i] for i in range(0, len(p[0]), 3)] for p in path]
+    
+    # Calculate number of rows needed for subplots
+    n_modes = len(axisym_coeff[0])
+    n_rows = (n_modes + 1) // 2  # +1 for the max displacement plot
+    
+    # Create subplot grid
+    fig, axes = plt.subplots(n_rows, 2, figsize=(12, 5*n_rows))
+    axes = axes.flatten()  # Flatten for easier indexing
+    
+    # Plot max displacement
+    axes[0].plot(lam_vals, max_disp, 'o-')
+    axes[0].set_xlabel('λ')
+    axes[0].set_ylabel('Maximum Displacement')
+    axes[0].set_title('Maximum Displacement vs λ')
+    axes[0].grid(True)
+    
+    # Plot each axisymmetric mode coefficient
+    for i in range(n_modes):
+        mode_coeff = [coeff[i] for coeff in axisym_coeff]
+        axes[i+1].plot(lam_vals, mode_coeff, 'o-')
+        axes[i+1].set_xlabel('λ')
+        axes[i+1].set_ylabel(f'a_{i*3}')
+        axes[i+1].set_title(f'Axisymmetric Mode {i+1}')
+        axes[i+1].grid(True)
+    
+    plt.tight_layout()
+    plt.show()
 
-    plt.plot(lam_vals, a1_vals, 'o-')
+    # Plot bifurcation diagram
+    plt.figure(figsize=(10, 6))
+    plt.plot(lam_vals, max_disp, 'o-')
     plt.xlabel("λ (electrostatic parameter)")
-    plt.ylabel("a₁ (mode #1 amplitude)")
+    plt.ylabel("Maximum Displacement")
     plt.title("Bifurcation Diagram")
     plt.grid(True)
+    plt.show()
+
+    # Plot the final shape
+    final_a = path[-1][0]
+    u = cont.reconstruct_shape(final_a)
+    
+    # Convert polar (R,Θ) to Cartesian (X,Y) coordinates
+    X = cont.R.cpu().numpy() * np.cos(cont.Θ.cpu().numpy())
+    Y = cont.R.cpu().numpy() * np.sin(cont.Θ.cpu().numpy())
+    
+    plt.figure(figsize=(8, 8))
+    plt.contourf(X, Y, u.cpu().numpy(), levels=20)
+    plt.colorbar(label='Displacement')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.title('Final Membrane Shape')
+    plt.axis('equal')  # Make axes equal scale
     plt.show()
 
 if __name__ == "__main__":
