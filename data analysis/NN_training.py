@@ -10,8 +10,8 @@ from read_dat import read_labview_binary, cartesian_to_cylindrical
 import itertools
 import random  # Add this import for random sampling
 
-n_basis = 2  # Number of zeros for basis functions
-n_markers = 8 # Number of motion capture markers
+n_basis = 3  # Number of zeros for basis functions
+n_markers = 15 # Number of motion capture markers
 
 # Parameters
 gap = 37.0 # mm
@@ -19,8 +19,9 @@ radius = 250.0 # mm
 
 # Load data from .dat file instead of CSV
 print("Reading data file...")
-dat_filename = "data/2025-04-22 28 mm pull-in take 2.dat"
-voltage, positions, time = read_labview_binary(dat_filename, decimate=100)  # Using decimate=10 to reduce data similar to original
+dat_filename = "data/2025-05-26 28 mm stabilized pull-in.dat"
+voltages, positions, time = read_labview_binary(dat_filename, decimate=100)  # Using decimate=10 to reduce data similar to original
+mesh_voltage = voltages[:,0] - voltages[:,1]
 
 # Calculate cylindrical coordinates
 r, theta, z = cartesian_to_cylindrical(positions)
@@ -31,7 +32,7 @@ mocap_theta = torch.tensor(theta[0])  # Use first frame's theta values
 # Normalize radius
 mocap_r = mocap_r / radius
 
-n_shapes = len(voltage)  # number of sampled shapes
+n_shapes = len(mesh_voltage)  # number of sampled shapes
 shape_data = []  # training data to store
 
 # Create Bessel Function Zeros Table
@@ -54,9 +55,9 @@ def generate_basis_functions(r, theta, N):
     return torch.stack(basis_functions, dim=1)  # Shape: (n_markers, n_basis)
 
 # Generate shapes data table
-n_permutations = 1  # Number of random permutations to generate per shape
+n_permutations = 15  # Number of random permutations to generate per shape
 for i in range(n_shapes):
-    volt = voltage[i]
+    volt = mesh_voltage[i]
     mocap_z = torch.tensor(z[i] * 1/gap)  # normalized
     mocap_z = - mocap_z  # NOTE THE MINUS SIGN
     

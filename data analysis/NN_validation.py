@@ -19,7 +19,7 @@ from shapenet_utils import (
     create_plotly_animation
 )
 
-def load_and_prepare_data(dat_filename, n_basis, n_markers, radius, gap, decimate=100):
+def load_and_prepare_data(dat_filename, n_basis, n_markers, radius, gap, decimate=1000):
     """
     Load data from .dat file and prepare for processing.
     
@@ -36,7 +36,8 @@ def load_and_prepare_data(dat_filename, n_basis, n_markers, radius, gap, decimat
         bessel_zeros: List of Bessel function zeros
     """
     print("Reading data file...")
-    voltage, positions, time = read_labview_binary(dat_filename, decimate=decimate)
+    voltages, positions, time = read_labview_binary(dat_filename, decimate=decimate)
+    mesh_voltage = voltages[:,0] - voltages[:,1]
 
     # Calculate cylindrical coordinates
     r, theta, z = cartesian_to_cylindrical(positions)
@@ -50,12 +51,12 @@ def load_and_prepare_data(dat_filename, n_basis, n_markers, radius, gap, decimat
     # Create Bessel Function Zeros Table
     bessel_zeros = create_bessel_zeros_table(n_basis)
 
-    n_shapes = len(voltage)  # number of sampled shapes
+    n_shapes = len(mesh_voltage)  # number of sampled shapes
     shape_data = []  # data to store
 
     # Generate shapes data table with LSQ coefficients
     for i in range(n_shapes):
-        volt = voltage[i]
+        volt = mesh_voltage[i]
         mocap_z = torch.tensor(z[i] * 1/gap)  # normalized
         mocap_z = -mocap_z  # NOTE THE MINUS SIGN
         
@@ -457,11 +458,11 @@ def main():
     print("Starting ShapeNet validation and visualization...")
     
     # Parameters - must match the training parameters
-    n_basis = 2  # Number of zeros for basis functions
-    n_markers = 8  # Number of motion capture markers
+    n_basis = 3  # Number of zeros for basis functions
+    n_markers = 15  # Number of motion capture markers
     gap = 37.0  # mm
     radius = 250.0  # mm
-    dat_filename = "data/2025-04-22 28 mm pull-in take 1.dat"
+    dat_filename = "data/2025-05-26 28 mm stabilized pull-in.dat"
     model_filename = 'shape_net_model.pth'
     
     # Load and prepare data
