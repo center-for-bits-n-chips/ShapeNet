@@ -214,7 +214,6 @@ def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
 
                 # Update ShapeNet mesh if coefficients are available
                 if 'coefficients' in data and data['coefficients'] is not None:
-                    print("Visualizer: Received coefficients:", data['coefficients'])
                     # Generate mesh grid for reconstruction
                     r_full = np.linspace(0, 1.0, 50)
                     theta_full = np.linspace(0, 2*np.pi, 50)
@@ -222,10 +221,8 @@ def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
 
                     # Generate basis functions
                     basis_functions = generate_basis_functions_for_surface(R, Theta, 3)  # Using 3 basis functions
-                    print("Visualizer: Basis functions shape:", basis_functions.shape)
                     Z = np.dot(basis_functions, data['coefficients'])
-                    print("Visualizer: Z shape after dot product:", Z.shape)
-
+                    
                     # Convert to Cartesian coordinates
                     X = R * np.cos(Theta)
                     Y = R * np.sin(Theta)
