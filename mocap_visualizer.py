@@ -67,7 +67,6 @@ class MoCapVisualizer:
                 
                 # Add neural network coefficients if available
                 if self.mocap_server.config.NN_enable and self.mocap_server.last_coefficients is not None:
-                    print("Visualizer: Adding coefficients to data package:", self.mocap_server.last_coefficients)
                     data_package['coefficients'] = self.mocap_server.last_coefficients
             
             # Send data to visualization process if queue isn't full
@@ -231,9 +230,8 @@ def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
                     X = R * np.cos(Theta)
                     Y = R * np.sin(Theta)
 
-                    # Scale for visualization
-                    Z_scaling = 10.0
-                    Z *= Z_scaling
+                    # Scale for visualization using mocap server's z_scale
+                    Z *= 1.0
 
                     # Create color gradient based on Z values
                     colors = np.zeros((X.size, 4), dtype=float)
