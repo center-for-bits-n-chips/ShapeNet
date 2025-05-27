@@ -75,8 +75,8 @@ class MocapServer:
             self.display.stop()
 
     def process_input(self, input):
-        # Replace this with the real voltage input
-        voltage = [0.0]
+        # Combine voltage data with mocap input
+        voltage = [self.voltage_data] if self.voltage_data is not None else [0.0]
         voltage.extend(input)
         voltage = np.array(voltage, dtype=np.float32) # NN input must be float
 
