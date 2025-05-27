@@ -320,9 +320,7 @@ class MocapServer:
                         struct.unpack('>d', data[:8])[0]
                         data = data[8:]
                      
-                    voltage_data = data    
-                    print('Voltage data: ', voltage_data)
-                    self.voltage_data = voltage_data  # Store the voltage data
+                    self.voltage_data = data  # Store the voltage data
                     
                     # Send all marker positions in millimeters
                     # Format: [x1,x2,x3,..., y1,y2,y3,..., z1,z2,z3,...]
