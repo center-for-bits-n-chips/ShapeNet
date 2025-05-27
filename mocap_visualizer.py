@@ -210,53 +210,38 @@ def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
 
                 # Update ShapeNet mesh if coefficients are available
                 if 'coefficients' in data and data['coefficients'] is not None:
-                    try:
-                        # Generate mesh grid for reconstruction
-                        r_full = np.linspace(0, 250.0, 50)
-                        theta_full = np.linspace(0, 2*np.pi, 50)
-                        Theta, R = np.meshgrid(theta_full, r_full, indexing='ij')
+                    # Generate mesh grid for reconstruction
+                    r_full = np.linspace(0, 1.0, 50)
+                    theta_full = np.linspace(0, 2*np.pi, 50)
+                    Theta, R = np.meshgrid(theta_full, r_full, indexing='ij')
 
-                        # Generate basis functions
-                        basis_functions = generate_basis_functions_for_surface(R, Theta, 3)  # Using 3 basis functions
-                        print("Basis functions shape:", basis_functions.shape)
-                        print("Coefficients shape:", data['coefficients'].shape)
-                        Z = np.dot(basis_functions, data['coefficients'])
-                        print("Z shape:", Z.shape)
+                    # Generate basis functions
+                    basis_functions = generate_basis_functions_for_surface(R, Theta, 3)  # Using 3 basis functions
+                    Z = np.dot(basis_functions, data['coefficients'])
 
-                        # Convert to Cartesian coordinates
-                        X = R * np.cos(Theta)
-                        Y = R * np.sin(Theta)
+                    # Convert to Cartesian coordinates
+                    X = R * np.cos(Theta)
+                    Y = R * np.sin(Theta)
 
-                        # Scale for visualization
-                        Z_scaling = 2.0
-                        Z *= Z_scaling
+                    # Scale for visualization
+                    Z_scaling = 10.0
+                    Z *= Z_scaling
 
-                        # Create color gradient based on Z values
-                        colors = np.zeros((X.size, 4), dtype=float)
-                        colors[:, 0] = (Z.flatten() - Z.min()) / (Z.max() - Z.min())  # Red channel
-                        colors[:, 1] = 0.5  # Green channel
-                        colors[:, 2] = 1 - (Z.flatten() - Z.min()) / (Z.max() - Z.min())  # Blue channel
-                        colors[:, 3] = 1.0  # Alpha channel
+                    # Create color gradient based on Z values
+                    colors = np.zeros((X.size, 4), dtype=float)
+                    colors[:, 0] = (Z.flatten() - Z.min()) / (Z.max() - Z.min())  # Red channel
+                    colors[:, 1] = 0.5  # Green channel
+                    colors[:, 2] = 1 - (Z.flatten() - Z.min()) / (Z.max() - Z.min())  # Blue channel
+                    colors[:, 3] = 1.0  # Alpha channel
 
-                        # Create vertices and faces
-                        vertices = np.column_stack((X.flatten(), Y.flatten(), Z.flatten()))
-                        faces = create_faces(X, Y)
-                        print("Vertices shape:", vertices.shape)
-                        print("Faces shape:", faces.shape)
+                    # Create vertices and faces
+                    vertices = np.column_stack((X.flatten(), Y.flatten(), Z.flatten()))
+                    faces = create_faces(X, Y)
 
-                        # Update mesh data
-                        meshdata = gl.MeshData(vertexes=vertices, faces=faces)
-                        meshdata.setVertexColors(colors)
-                        shape_mesh.setMeshData(meshdata=meshdata)
-                    except Exception as e:
-                        import traceback
-                        print("Error in mesh update:")
-                        print(traceback.format_exc())
-                        print("Data shapes:")
-                        print(f"R shape: {R.shape}")
-                        print(f"Theta shape: {Theta.shape}")
-                        print(f"Basis functions shape: {basis_functions.shape if 'basis_functions' in locals() else 'Not created'}")
-                        print(f"Coefficients: {data['coefficients']}")
+                    # Update mesh data
+                    meshdata = gl.MeshData(vertexes=vertices, faces=faces)
+                    meshdata.setVertexColors(colors)
+                    shape_mesh.setMeshData(meshdata=meshdata)
 
         except Exception as e:
             print(f"Error in visualization update: {e}")
