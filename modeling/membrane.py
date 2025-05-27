@@ -40,12 +40,14 @@ class PseudoArcLengthContinuation:
         Nr: int = 200,
         Nθ: int = 400,
         dtype=torch.float64,
-        device=torch.device('cpu')
+        device=torch.device('cpu'),
+        save_every: int = 100
     ):
         # continuation parameters
         self.ds         = ds
         self.max_steps  = max_steps
         self.newton_tol = newton_tol
+        self.save_every = save_every
 
         # build polar grid
         self.r_vals = torch.linspace(1e-6, 1.0, Nr, dtype=dtype, device=device)
@@ -108,7 +110,7 @@ class PseudoArcLengthContinuation:
         # stack φ values: shape (Nr, Nθ, N)
         Phi = torch.stack([entry['fn'](self.R, self.Θ) for entry in self.basis], dim=2)
         # denominator S = 1 + Σ a_j φ_j
-        S   = 1.0 + torch.tensordot(Phi, a_torch, dims=([2],[0]))
+        S   = 1.0 - torch.tensordot(Phi, a_torch, dims=([2],[0]))
         integrand = Phi * (self.R.unsqueeze(2) / (S**2).unsqueeze(2))
         tmp = torch.trapz(integrand, dx=self.dθ, dim=1)  # integrate θ → (Nr, N)
         g_t = torch.trapz(tmp,       dx=self.dr, dim=0)  # integrate r → (N,)
@@ -153,7 +155,7 @@ class PseudoArcLengthContinuation:
         A = np.hstack([F_a, F_lam.reshape(-1,1)])  # (N, N+1)
         _,_,Vt = np.linalg.svd(A)
         t = Vt.conj().T[:, -1]
-        if t[-1] < 0: t = -t
+        if t[0] < 0: t = -t
         return t / np.linalg.norm(t)
 
     def continue_(self, a0, lam0):
@@ -166,7 +168,7 @@ class PseudoArcLengthContinuation:
         t = self.compute_tangent(a, lam)
 
         for i in range(self.max_steps):
-            if i % 10 == 0:
+            if i % self.save_every == 0:
                 print(f"Iteration {i}, λ = {lam:.6f}, a = {a}")
                 
             x_prev = np.concatenate([a, [lam]])
@@ -176,7 +178,7 @@ class PseudoArcLengthContinuation:
             for newton_iter in range(20):
                 a_k, lam_k = x[:-1], x[-1]
                 Fvec = self.residual(a_k, lam_k)
-                Φ    = np.linalg.norm(x - x_prev)**2 - self.ds**2
+                Φ    = t.dot(x - x_prev) - self.ds
                 Faug = np.concatenate([Fvec, [Φ]])
 
                 F_a, F_lam = self.jacobian(a_k, lam_k)
@@ -192,23 +194,24 @@ class PseudoArcLengthContinuation:
                     break
 
             a, lam = x[:-1], x[-1]
-            #t = delta / np.linalg.norm(delta)
             t = self.compute_tangent(a, lam)
-            path.append((a.copy(), lam))
+            if i % self.save_every == 0:
+                path.append((a.copy(), lam))
             
         return path
     
 def main():
     # choose which zeros of J0/J1 to include
-    zeros_list = [1]
+    zeros_list = [1, 2, 3]
 
     cont = PseudoArcLengthContinuation(
         zeros_list=zeros_list,
         ds=0.01,
-        max_steps=200,
+        max_steps=120,
         newton_tol=1e-6,
         Nr=200,
-        Nθ=400
+        Nθ=400,
+        save_every=1
     )
 
     # initial flat solution
