@@ -298,7 +298,7 @@ class MocapServer:
         """Handle interaction with a single connected client."""
         print(f"Connected by {addr}")
         conn.settimeout(0.1)
-        TIMEOUT_THRESHOLD = 0.02  # 20ms timeout threshold
+        TIMEOUT_THRESHOLD = 0.03  # 30 ms timeout threshold
 
         try:
             while True:

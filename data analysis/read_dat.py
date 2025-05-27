@@ -331,7 +331,7 @@ def poly_through_origin(x, *coeffs):
         y += coef * x**(i+1)  # Start from x^1
     return y
 
-def fit_voltage_polynomial(comsol_gap, comsol_voltage, initial_gap=35, degree=4):
+def fit_voltage_polynomial(displacement, voltage, degree=4):
     """
     Fit a polynomial to predict voltage from position, forcing it through (0,0).
     
@@ -345,14 +345,11 @@ def fit_voltage_polynomial(comsol_gap, comsol_voltage, initial_gap=35, degree=4)
         poly: Function that takes position and returns voltage
         coeffs: Array of polynomial coefficients
     """
-    # Convert normalized gap to actual gap
-    actual_gap = comsol_gap * initial_gap
-    
     # Initial guess for coefficients (all ones)
     p0 = np.ones(degree)
     
     # Fit the polynomial
-    coeffs, _ = curve_fit(poly_through_origin, actual_gap, comsol_voltage, p0=p0)
+    coeffs, _ = curve_fit(poly_through_origin, displacement, voltage, p0=p0)
     
     # Create a function that uses these coefficients
     def poly(x):
@@ -365,8 +362,8 @@ def main():
     num_markers = 15
     num_voltages = 11
     
-    filename = "data/2025-05-26 15 mm open loop ramp 0.05 mm_per_s.dat"
-    voltages, positions, time = read_labview_binary(filename, num_markers=num_markers, num_voltages=num_voltages, decimate=1)
+    filename = "data/2025-05-26 28 mm stabilized pull-in.dat"
+    voltages, positions, time = read_labview_binary(filename, num_markers=num_markers, num_voltages=num_voltages, decimate=1000)
     print("\nGenerating plots...")
 
     # Plot marker locations at different frames
@@ -401,7 +398,7 @@ def main():
     plt.show()
     
     # Create voltage vs position plot
-    end_index = 32000
+    end_index = 228882
     plt.figure(figsize=(10, 6))
     
     # Plot experimental data
@@ -411,17 +408,11 @@ def main():
                 color=colors[i], 
                 marker='.')
     
-    # Read and plot COMSOL data
-    comsol_gap, comsol_voltage = read_comsol_data("comsol/pull in 50-cm diameter 35-mm gap varying tension.txt", set_index=2)
-    # Convert normalized gap to actual gap
-    actual_gap = comsol_gap * 35  # mm
-    plt.plot(comsol_voltage, actual_gap, 'k--', label='COMSOL Simulation', linewidth=2)
-    
-    # Fit and plot polynomial
-    voltage_poly, coeffs = fit_voltage_polynomial(comsol_gap, comsol_voltage, degree=5)
+    # Fit polynomial to experimental data
+    voltage_poly, coeffs = fit_voltage_polynomial(positions[:end_index, 4, 2], voltages[:end_index, 0], degree=5)
     
     # Test the polynomial with some example positions
-    test_positions = np.linspace(0, actual_gap.max(), 100)
+    test_positions = np.linspace(positions[:end_index, 4, 2].min(), positions[:end_index, 4, 2].max(), 100)
     predicted_voltages = voltage_poly(test_positions)
     
     # Plot the polynomial fit
@@ -442,7 +433,7 @@ def main():
         print(f"x^{i+1}: {coef:.6f}")
     
     print("\nExample voltage predictions from position:")
-    test_positions = [35.0, 30.0, 25.0, 20.0, 15.0, 10.0, 5.0, 0.0]
+    test_positions = np.linspace(positions[:end_index, 4, 2].min(), positions[:end_index, 4, 2].max(), 8)
     for pos in test_positions:
         voltage = voltage_poly(pos)
         print(f"Position: {pos:.1f} mm -> Voltage: {voltage:.2f} kV")
