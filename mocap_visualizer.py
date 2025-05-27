@@ -64,6 +64,11 @@ class MoCapVisualizer:
                     'rim': self.rim_marker_pos_vis.copy(),
                     'circle': self.circle_points.copy()
                 }
+                
+                # Add neural network coefficients if available
+                if self.mocap_server.config.NN_enable and self.mocap_server.last_coefficients is not None:
+                    print("Visualizer: Adding coefficients to data package:", self.mocap_server.last_coefficients)
+                    data_package['coefficients'] = self.mocap_server.last_coefficients
             
             # Send data to visualization process if queue isn't full
             try:
