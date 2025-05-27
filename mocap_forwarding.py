@@ -157,7 +157,7 @@ class MocapServer:
     def initial_calibration(self) -> None:
         """Calculate rim parameters and initial z-offsets from marker positions."""
         rim_marker_pos = list(self.rim_marker_positions.values())
-        mesh_marker_pos = list(self.mesh_marker_positions.values())
+        mesh_marker_pos = sorted(list(self.mesh_marker_positions.values()), key=lambda pos: pos[0])
         
         # First calculate best fit plane from mesh markers
         if len(mesh_marker_pos) != self.config.num_mesh_markers:
@@ -240,7 +240,7 @@ class MocapServer:
 
     def transform_marker_positions(self) -> None:
         """Transform marker positions based on rim parameters and best fit plane."""
-        mesh_marker_pos = list(self.mesh_marker_positions.values())
+        mesh_marker_pos = sorted(list(self.mesh_marker_positions.values()), key=lambda pos: pos[0])
         rim_marker_pos = list(self.rim_marker_positions.values())
         
         # Convert to numpy arrays
