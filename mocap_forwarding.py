@@ -23,9 +23,8 @@ class MocapConfig:
     center: np.ndarray = np.array([0, 0, 0])
     display_update_rate: float = 10.0  # Hz
     tare: bool = True  # Whether to subtract the initial offset
-    num_basis: int = 8
-    n_basis: int = 2
-    model_path: str = 'shape_net_model.pth'
+    n_basis: int = 3
+    model_path: str = '2025-05-27 shape_net_model.pth'
     hidden_size: int = 32
     NN_enable: bool = False
 
