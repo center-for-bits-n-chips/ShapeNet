@@ -388,6 +388,33 @@ class MocapServer:
                     print("Server is shutting down.")
                     break
 
+    def data_collection_thread(self):
+        """Thread function to collect data and send to visualization process"""
+        while self.running:
+            self.update_visualization_data()
+            
+            # Package data to send to the visualization process
+            with self.data_lock:
+                data_package = {
+                    'mesh': self.mesh_marker_pos_vis.copy(),
+                    'rim': self.rim_marker_pos_vis.copy(),
+                    'circle': self.circle_points.copy()
+                }
+                
+                # Add neural network coefficients if available
+                if self.config.NN_enable and hasattr(self, 'last_coefficients'):
+                    data_package['coefficients'] = self.last_coefficients
+            
+            # Send data to visualization process if queue isn't full
+            try:
+                if not self.data_queue.full():
+                    self.data_queue.put_nowait(data_package)
+            except:
+                pass
+            
+            # Sleep to maintain update rate
+            time.sleep(1.0 / self.update_rate)
+
 def main():
     # Parse command line arguments
     options = {

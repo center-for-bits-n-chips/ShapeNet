@@ -165,6 +165,34 @@ def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
         mode='line_strip'
     )
     window.addItem(circle_line)
+
+    # Create initial mesh for ShapeNet visualization
+    init_vertices = np.array([
+        [0, 0, 0],
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1]
+    ], dtype=float)
+    
+    init_faces = np.array([
+        [0, 1, 2],
+        [0, 1, 3],
+        [0, 2, 3],
+        [1, 2, 3]
+    ], dtype=int)
+    
+    # Create MeshData
+    meshdata = gl.MeshData(vertexes=init_vertices, faces=init_faces)
+    
+    # Create the mesh item
+    shape_mesh = gl.GLMeshItem(
+        meshdata=meshdata,
+        smooth=False,
+        color=(0.5, 0.5, 1, 1),  # RGBA
+        shader='shaded',
+        drawEdges=True,
+    )
+    window.addItem(shape_mesh)
     
     # Create a timer for updates
     timer = QtCore.QTimer()
@@ -179,6 +207,42 @@ def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
                 if len(mesh_pos) > 0:
                     mesh_scatter.setData(pos=mesh_pos)
                 circle_line.setData(pos=circle_points)
+
+                # Update ShapeNet mesh if coefficients are available
+                if 'coefficients' in data and data['coefficients'] is not None:
+                    # Generate mesh grid for reconstruction
+                    r_full = np.linspace(0, 1.0, 50)
+                    theta_full = np.linspace(0, 2*np.pi, 50)
+                    Theta, R = np.meshgrid(theta_full, r_full, indexing='ij')
+
+                    # Generate basis functions
+                    basis_functions = generate_basis_functions_for_surface(R, Theta, 3)  # Using 3 basis functions
+                    Z = np.dot(basis_functions, data['coefficients'])
+
+                    # Convert to Cartesian coordinates
+                    X = R * np.cos(Theta)
+                    Y = R * np.sin(Theta)
+
+                    # Scale for visualization
+                    Z_scaling = 10.0
+                    Z *= Z_scaling
+
+                    # Create color gradient based on Z values
+                    colors = np.zeros((X.size, 4), dtype=float)
+                    colors[:, 0] = (Z.flatten() - Z.min()) / (Z.max() - Z.min())  # Red channel
+                    colors[:, 1] = 0.5  # Green channel
+                    colors[:, 2] = 1 - (Z.flatten() - Z.min()) / (Z.max() - Z.min())  # Blue channel
+                    colors[:, 3] = 1.0  # Alpha channel
+
+                    # Create vertices and faces
+                    vertices = np.column_stack((X.flatten(), Y.flatten(), Z.flatten()))
+                    faces = create_faces(X, Y)
+
+                    # Update mesh data
+                    meshdata = gl.MeshData(vertexes=vertices, faces=faces)
+                    meshdata.setVertexColors(colors)
+                    shape_mesh.setMeshData(meshdata=meshdata)
+
         except Exception as e:
             print(f"Error in visualization update: {e}")
     
@@ -186,6 +250,48 @@ def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
     timer.start(int(1000 / update_rate))
     
     pg.exec()
+
+def create_faces(X, Y):
+    """Create a list of triangle faces from meshgrid coordinates."""
+    faces = []
+    rows, cols = X.shape
+
+    for i in range(rows - 1):
+        for j in range(cols - 1):
+            # Define the indices of the square's corners
+            idx0 = i * cols + j
+            idx1 = idx0 + 1
+            idx2 = idx0 + cols
+            idx3 = idx2 + 1
+
+            # First triangle of the square
+            faces.append([idx0, idx2, idx1])
+            # Second triangle of the square
+            faces.append([idx1, idx2, idx3])
+
+    return np.array(faces, dtype=int)
+
+def generate_basis_functions_for_surface(r, theta, n_basis):
+    """Generate basis functions for surface reconstruction."""
+    from scipy.special import jn_zeros, jv
+    
+    # Create Bessel Function Zeros Table
+    alphas = []
+    for m in range(2):
+        zeros = jn_zeros(m, n_basis)
+        alphas.extend(zeros)
+    
+    basis_functions = []
+    for k in range(n_basis):
+        n = k + 1  # indexing by n = 1, 2, 3
+        phi_n = jv(0, alphas[k]*r)
+        phi_n_sin = jv(1, alphas[n_basis + k]*r) * np.sin(theta)
+        phi_n_cos = jv(1, alphas[n_basis + k]*r) * np.cos(theta)
+        basis_functions.append(phi_n)
+        basis_functions.append(phi_n_sin)
+        basis_functions.append(phi_n_cos)
+    
+    return np.stack(basis_functions, axis=2)  # Shape: (n_samples, n_basis)
 
 
 # Example usage:
