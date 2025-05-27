@@ -47,6 +47,7 @@ class MocapServer:
         self.offset_samples = []  # Store samples for averaging
         self.num_samples_needed = 10  # Number of samples to average
         self.display = DigitalDisplay(self, config.display_update_rate)
+        self.last_update_time = time.time()  # Add timestamp for tracking updates
         if config.NN_enable:
             # Load the state_dict
             state_dict = torch.load(config.model_path, map_location=torch.device('cpu'), weights_only=True)  # Use 'cuda' if using GPU
@@ -297,10 +298,17 @@ class MocapServer:
         """Handle interaction with a single connected client."""
         print(f"Connected by {addr}")
         conn.settimeout(0.1)
+        TIMEOUT_THRESHOLD = 0.02  # 20ms timeout threshold
 
         try:
             while True:
                 try:
+                    # Check for timeout
+                    current_time = time.time()
+                    if current_time - self.last_update_time > TIMEOUT_THRESHOLD:
+                        print(f"Connection with {addr} timed out - no marker updates received for {TIMEOUT_THRESHOLD*1000:.0f}ms")
+                        break
+
                     data = conn.recv(1024)
                     if not data:
                         print(f"Client {addr} closed the connection.")
@@ -322,14 +330,8 @@ class MocapServer:
                         mocap_input = self.normalize_input(x_values, y_values, z_values, self.radius, self.gap)
                         predicted_coefficients = self.process_input(mocap_input)
                         self.display.update_coefficients(predicted_coefficients)
-            
-                        # CENTER LOCATION FROM NN
-                        # center_basis_functions = self.generate_basis_functions_for_surface(torch.zeros(1, 1),torch.zeros(1, 1), self.config.n_basis).detach().numpy()
-                        # Z_center_np = np.dot(center_basis_functions, predicted_coefficients)
-                        # Z_center_shapenet = Z_center_np.item() * self.gap
 
                     format_string = '>' + 'd' * len(flat_positions)
-
                     conn.sendall(struct.pack(format_string, *flat_positions))
                     
                 except socket.timeout:
@@ -351,6 +353,7 @@ class MocapServer:
 
         # Only proceed if we have all required markers
         if not (len(self.mesh_marker_positions) == self.config.num_mesh_markers):
+            print(f"OH NOOOO!!!")
             return
 
         # Calculate rim parameters once
@@ -360,6 +363,7 @@ class MocapServer:
         # Transform positions if calibration calculations are done
         if not self.flag_calibrate:
             self.transform_marker_positions()
+            self.last_update_time = time.time()  # Update timestamp when positions are updated
 
     def start_server(self, host: str = '0.0.0.0', port: int = 9999) -> None:
         """Start the TCP server."""
