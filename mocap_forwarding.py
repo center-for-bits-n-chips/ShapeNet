@@ -316,11 +316,13 @@ class MocapServer:
                         print(f"Client {addr} closed the connection.")
                         break
                     
+                    # Parse voltage values from received data
+                    # Each voltage value is an 8-byte double
                     while len(data) >= 8:
-                        struct.unpack('>d', data[:8])[0]
-                        data = data[8:]
-                     
-                    self.voltage_data = data  # Store the voltage data
+                        voltage = struct.unpack('>d', data[:8])[0]  # Unpack 8 bytes as big-endian double
+                        data = data[8:]  # Move to next 8 bytes
+                    print('Voltage data: ', voltage)
+                    self.voltage_data = voltage  # Store the voltage data
                     
                     # Send all marker positions in millimeters
                     # Format: [x1,x2,x3,..., y1,y2,y3,..., z1,z2,z3,...]
