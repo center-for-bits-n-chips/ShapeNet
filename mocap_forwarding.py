@@ -47,6 +47,7 @@ class MocapServer:
         self.num_samples_needed = 10  # Number of samples to average
         self.display = DigitalDisplay(self, config.display_update_rate)
         self.last_update_time = time.time()  # Add timestamp for tracking updates
+        self.voltage_data = None  # Store the latest voltage data
         if config.NN_enable:
             # Load the state_dict
             state_dict = torch.load(config.model_path, map_location=torch.device('cpu'), weights_only=True)  # Use 'cuda' if using GPU
@@ -311,7 +312,6 @@ class MocapServer:
                         sys.exit(1)  # Exit with error code 1
 
                     data = conn.recv(1024)
-                    print('Voltage data: ', data)
                     if not data:
                         print(f"Client {addr} closed the connection.")
                         break
@@ -320,6 +320,10 @@ class MocapServer:
                         struct.unpack('>d', data[:8])[0]
                         data = data[8:]
                      
+                    voltage_data = data    
+                    print('Voltage data: ', voltage_data)
+                    self.voltage_data = voltage_data  # Store the voltage data
+                    
                     # Send all marker positions in millimeters
                     # Format: [x1,x2,x3,..., y1,y2,y3,..., z1,z2,z3,...]
                     x_values = self.mesh_marker_pos_mm[:, 0]

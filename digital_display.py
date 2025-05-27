@@ -40,6 +40,11 @@ class DigitalDisplay:
          else:
              print("Tare: OFF")
 
+         # Display voltage data if available
+         if hasattr(self.mocap_server, 'voltage_data'):
+             print("\n=== Voltage Data ===")
+             print(f"Voltage: {self.mocap_server.voltage_data}")
+
          # Display neural network coefficients if enabled
          if self.mocap_server.config.NN_enable and self.last_coefficients is not None:
              print("\n=== Neural Network Coefficients ===")
