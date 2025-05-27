@@ -311,6 +311,7 @@ class MocapServer:
                         sys.exit(1)  # Exit with error code 1
 
                     data = conn.recv(1024)
+                    print('Voltage data: ', data)
                     if not data:
                         print(f"Client {addr} closed the connection.")
                         break

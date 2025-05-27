@@ -401,15 +401,17 @@ def main():
     end_index = 228882
     plt.figure(figsize=(10, 6))
     
+    mesh_voltage = voltages[:end_index, 0] - voltages[:end_index, 1]
+
     # Plot experimental data
     for i in [4]:
-        plt.plot(voltages[:end_index, 0], positions[:end_index, i, 2],
+        plt.plot(mesh_voltage, positions[:end_index, i, 2],
                 label=f'Marker {i} z',
                 color=colors[i], 
                 marker='.')
     
     # Fit polynomial to experimental data
-    voltage_poly, coeffs = fit_voltage_polynomial(positions[:end_index, 4, 2], voltages[:end_index, 0], degree=5)
+    voltage_poly, coeffs = fit_voltage_polynomial(positions[:end_index, 4, 2], mesh_voltage, degree=5)
     
     # Test the polynomial with some example positions
     test_positions = np.linspace(positions[:end_index, 4, 2].min(), positions[:end_index, 4, 2].max(), 100)
