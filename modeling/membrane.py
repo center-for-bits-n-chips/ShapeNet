@@ -35,7 +35,7 @@ class PseudoArcLengthContinuation:
         self,
         zeros_list,
         ds: float = 0.01,
-        max_steps: int = 200,
+        max_steps: int = 100,
         newton_tol: float = 1e-6,
         Nr: int = 200,
         Nθ: int = 400,
@@ -67,6 +67,67 @@ class PseudoArcLengthContinuation:
         # precompute stiffness matrix (numpy) with explicit derivatives
         self.K  = self._compute_stiffness_matrix()
         self.Kt = torch.tensor(self.K, dtype=dtype, device=device)
+
+    def _compute_vk_tensor(self, a_t):
+        """
+        Differentiable von-Kármán vector N(a) (shape (N,))
+        suitable for use inside autograd-tracked functions.
+        All math done in torch so gradients flow back to a_t.
+        """
+        # ----- 1. ∇w on the grid ----------------------------------------------
+        Dr_w = torch.zeros_like(self.R)
+        Dθ_w = torch.zeros_like(self.R)
+
+        for i, entry in enumerate(self.basis):
+            a_i   = a_t[i]
+            alpha = entry['alpha']; kind = entry['kind']
+
+            if kind == 'j0':
+                Dr_i = -alpha * torch.special.bessel_j1(alpha*self.R)
+                Dθ_i = torch.zeros_like(self.R)
+            elif kind == 'j1_cos':
+                J1 = torch.special.bessel_j1(alpha*self.R)
+                J0 = torch.special.bessel_j0(alpha*self.R)
+                Dr_i = (alpha*J0 - J1/self.R)*torch.cos(self.Θ)
+                Dθ_i = -J1*torch.sin(self.Θ)
+            else:  # j1_sin
+                J1 = torch.special.bessel_j1(alpha*self.R)
+                J0 = torch.special.bessel_j0(alpha*self.R)
+                Dr_i = (alpha*J0 - J1/self.R)*torch.sin(self.Θ)
+                Dθ_i =  J1*torch.cos(self.Θ)
+
+            Dr_w += a_i * Dr_i
+            Dθ_w += a_i * Dθ_i
+
+        # |∇w|²
+        G = Dr_w**2 + (1.0/self.R**2)*Dθ_w**2
+
+        # ----- 2. modal contributions -----------------------------------------
+        N_list = []
+        for entry in self.basis:
+            alpha = entry['alpha']; kind = entry['kind']
+
+            if kind == 'j0':
+                Dr_m = -alpha * torch.special.bessel_j1(alpha*self.R)
+                Dθ_m = torch.zeros_like(self.R)
+            elif kind == 'j1_cos':
+                J1 = torch.special.bessel_j1(alpha*self.R)
+                J0 = torch.special.bessel_j0(alpha*self.R)
+                Dr_m = (alpha*J0 - J1/self.R)*torch.cos(self.Θ)
+                Dθ_m = -J1*torch.sin(self.Θ)
+            else:  # j1_sin
+                J1 = torch.special.bessel_j1(alpha*self.R)
+                J0 = torch.special.bessel_j0(alpha*self.R)
+                Dr_m = (alpha*J0 - J1/self.R)*torch.sin(self.Θ)
+                Dθ_m =  J1*torch.cos(self.Θ)
+
+            dot = Dr_w*Dr_m + (1.0/self.R**2)*Dθ_w*Dθ_m
+            integrand = dot * G * self.R          # factor r dA
+            tmp = torch.trapz(integrand, dx=self.dθ, dim=1)
+            N_m = 0.5 * torch.trapz(tmp, dx=self.dr, dim=0)
+            N_list.append(N_m)
+
+        return torch.stack(N_list)   # shape (N,)
 
     def _compute_stiffness_matrix(self):
         """
@@ -122,41 +183,48 @@ class PseudoArcLengthContinuation:
         a: numpy array (N,), lam: float
         returns numpy array (N,)
         """
+        # electrostatic coupling vector
         a_t = torch.tensor(a, dtype=self.Kt.dtype, device=self.Kt.device)
+        N_t  = self._compute_vk_tensor(a) # nonlinear von karmán geometric stiffness vector
         g_t = self._compute_g_tensor(a_t)
-        return self.K.dot(a) - lam * g_t.cpu().numpy()
+
+        return self.K.dot(a) + N_t.cpu().numpy() - lam * g_t.cpu().numpy()
 
     def jacobian(self, a, lam):
         """
-        Auto‐differentiate F(a,λ) w.r.t [a, λ] using PyTorch.
-        returns (F_a, F_lambda) as numpy arrays.
+        J = ∂F/∂[a,λ]  where  F = K a + N(a) − λ g(a)
+        Returns (F_a  ,  F_λ)
+                shape (N,N), (N,)
         """
+        # build concatenated variable with grad tracking
         x0 = torch.tensor(np.concatenate([a, [lam]]),
-                          dtype=self.Kt.dtype, device=self.Kt.device,
-                          requires_grad=True)
-        
-        def F_torch(x):
-            a_t   = x[:-1]
-            lam_t = x[-1]
-            return self.Kt.matmul(a_t) - lam_t*self._compute_g_tensor(a_t)
+                        dtype=self.Kt.dtype, device=self.Kt.device,
+                        requires_grad=True)
 
-        J = torch.autograd.functional.jacobian(F_torch, x0)  # (N, N+1)
+        def F_torch(x):
+            a_t, lam_t = x[:-1], x[-1]
+            Ka   = self.Kt @ a_t
+            Nvk  = self._compute_vk_tensor(a_t)
+            gvec = self._compute_g_tensor(a_t)
+            return Ka + Nvk - lam_t * gvec     # shape (N,)
+
+        J = torch.autograd.functional.jacobian(F_torch, x0)   # (N, N+1)
         J_np = J.detach().cpu().numpy()
-        F_a    = J_np[:, :-1]
-        F_lam  = J_np[:,  -1]
+        F_a   = J_np[:, :-1]      # ∂F/∂a
+        F_lam = J_np[:,  -1]      # ∂F/∂λ
         return F_a, F_lam
 
     def compute_tangent(self, a, lam):
         """
-        Solve [F_a  F_λ]·t = 0 for tangent direction,
-        normalize, enforce t[-1]>0.
+        Solve [F_a  F_λ]·t = 0, ||t||=1, enforce t[-1]>0.
         """
         F_a, F_lam = self.jacobian(a, lam)
-        A = np.hstack([F_a, F_lam.reshape(-1,1)])  # (N, N+1)
+        A = np.hstack([F_a, F_lam.reshape(-1,1)])   # Nx(N+1)
+        # Nullspace of A: we can take SVD and pick last singular vector
         _,_,Vt = np.linalg.svd(A)
-        t = Vt.conj().T[:, -1]
-        if t[0] < 0: t = -t
-        return t / np.linalg.norm(t)
+        t = Vt.conj().T[:,-1]                      # shape (N+1,)
+        if t[0] < 0: t = -t                        # ensure positive first mode direction
+        return t/np.linalg.norm(t)
 
     def continue_(self, a0, lam0):
         """
@@ -165,6 +233,7 @@ class PseudoArcLengthContinuation:
         """
         path = []
         a, lam = a0.copy(), lam0
+        #t = np.zeros(self.N + 1);  t[-1] = 1.0
         t = self.compute_tangent(a, lam)
 
         for i in range(self.max_steps):
@@ -223,16 +292,16 @@ class PseudoArcLengthContinuation:
 
 def main():
     # choose which zeros of J0/J1 to include
-    zeros_list = [1, 2, 3]
+    zeros_list = [1, 2, 3, 4, 5]
 
     cont = PseudoArcLengthContinuation(
         zeros_list=zeros_list,
         ds=0.01,
-        max_steps=200,
+        max_steps=180,
         newton_tol=1e-6,
         Nr=200,
         Nθ=400,
-        save_every=10
+        save_every=5
     )
 
     # initial flat solution
