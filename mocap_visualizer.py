@@ -28,6 +28,7 @@ class MoCapVisualizer:
         self.mesh_marker_pos_vis = np.zeros((mocap_server.config.num_mesh_markers, 3))
         self.rim_marker_pos_vis = np.zeros((3, 3))
         self.circle_points = np.zeros((100, 3))
+        self.radius_m = 250*1e-3
         
         # Thread for data collection
         self.collector_thread = None
@@ -42,12 +43,12 @@ class MoCapVisualizer:
             
             # Create circle in XY plane (already in transformed space)
             theta = np.linspace(0, 2*np.pi, 100)
-            radius = self.mocap_server.radius
+            self.radius_m = self.mocap_server.radius_m
             
             # Generate circle points
             circle_points = np.zeros((100, 3))
-            circle_points[:, 0] = radius * np.cos(theta)
-            circle_points[:, 1] = radius * np.sin(theta)
+            circle_points[:, 0] = self.radius_m * np.cos(theta)
+            circle_points[:, 1] = self.radius_m * np.sin(theta)
             circle_points[:, 2] = 0.0
             
             self.circle_points = circle_points
@@ -62,7 +63,8 @@ class MoCapVisualizer:
                 data_package = {
                     'mesh': self.mesh_marker_pos_vis.copy(),
                     'rim': self.rim_marker_pos_vis.copy(),
-                    'circle': self.circle_points.copy()
+                    'circle': self.circle_points.copy(),
+                    'radius': self.radius_m.copy()
                 }
                 
                 # Add neural network coefficients if available
@@ -207,6 +209,7 @@ def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
                 data = data_queue.get_nowait()
                 mesh_pos = data['mesh']
                 circle_points = data['circle']
+                radius_m = data['radius']
                 
                 if len(mesh_pos) > 0:
                     mesh_scatter.setData(pos=mesh_pos)
@@ -224,11 +227,12 @@ def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
                     Z = np.dot(basis_functions, data['coefficients'])
                     
                     # Convert to Cartesian coordinates
-                    X = R * np.cos(Theta)
-                    Y = R * np.sin(Theta)
+                    X = radius_m * R * np.cos(Theta)
+                    Y = radius_m * R * np.sin(Theta)
 
                     # Scale for visualization using mocap server's z_scale
-                    Z *= 1.0
+                    gap_m = 37*1e-3
+                    Z *= 3.0 * gap_m
 
                     # Create color gradient based on Z values
                     colors = np.zeros((X.size, 4), dtype=float)

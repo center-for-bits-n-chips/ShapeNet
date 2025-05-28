@@ -20,7 +20,7 @@ np.set_printoptions(linewidth=np.inf)
 class MocapConfig:
     num_mesh_markers: int = 15
     z_axis: np.ndarray = np.array([0, 0, -1])
-    center: np.ndarray = np.array([0, 0, 0])
+    center_m: np.ndarray = np.array([0, 0, 0])
     display_update_rate: float = 10.0  # Hz
     tare: bool = True  # Whether to subtract the initial offset
     n_basis: int = 3
@@ -34,9 +34,9 @@ class MocapServer:
         self.mesh_marker_positions: Dict[int, List[float]] = {}
         self.rim_marker_positions: Dict[int, List[float]] = {marker_id: [0.0, 0.0, 0.0] for marker_id in [1, 2, 3]}
         self.normal = np.array([0, 0, -1])
-        self.center = np.array([0, 0, 0])
-        self.radius = 250.0
-        self.gap = 37.0
+        self.center_m = np.array([0, 0, 0])
+        self.radius_m = 250.0*1e-3
+        self.gap_m = 37.0*1e-3
         self.flag_calibrate = True
         self.plane_normal = np.array([0, 0, -1])
         self.plane_centroid = np.array([0, 0, 0])
@@ -88,10 +88,10 @@ class MocapServer:
         
         return predicted_coefficients
 
-    def normalize_input(self, x, y, z, radius, gap):
-        r, theta = self.cartesian_to_polar_numpy(x, y)
-        r_normalized = r / radius
-        z_normalized = z / gap # covert z from meters to mm
+    def normalize_input(self, x_mm, y_mm, z_mm, radius_m, gap_m):
+        r_mm, theta = self.cartesian_to_polar_numpy(x_mm, y_mm)
+        r_normalized = r_mm / (radius_m*1e3)
+        z_normalized = z_mm / (gap_m*1e3) # covert z from meters to mm
         # Use zip and list comprehension to interleave
         normalized_input = [item for trio in zip(r_normalized, theta, z_normalized) for item in trio]
         return normalized_input
@@ -112,7 +112,7 @@ class MocapServer:
         y = np.array(y, dtype=float)
         
         r = np.hypot(x, y)          # Equivalent to sqrt(x**2 + y**2)
-        theta = np.arctan2(y, x) + np.pi    # Angle in radians between -pi and pi
+        theta = np.arctan2(y, x)    # Angle in radians between -pi to pi
         
         return r, theta
 
@@ -226,11 +226,11 @@ class MocapServer:
             
             # Calculate circle parameters in rotated space
             p1, p2, p3 = rim_markers
-            self.center, self.radius, self.normal = self.compute_circumradius(p1, p2, p3)
+            self.center_m, self.radius_m, self.normal = self.compute_circumradius(p1, p2, p3)
             
             # Convert center and radius to millimeters
-            center_mm = self.center * 1000
-            radius_mm = self.radius * 1000
+            center_mm = self.center_m * 1000
+            radius_mm = self.radius_m * 1000
             print("\nRim Calculation Results:")
             print(f"Center [mm]: [{center_mm[0]:.1f}, {center_mm[1]:.1f}, {center_mm[2]:.1f}]")
             print(f"Radius [mm]: {radius_mm:.1f}")
@@ -256,7 +256,7 @@ class MocapServer:
         # Rotate points
         mesh_marker_pos = mesh_marker_pos @ rotation_mat.T
         # Translate x,y coordinates using center
-        mesh_marker_pos[:, :2] = mesh_marker_pos[:, :2] - self.center[:2]
+        mesh_marker_pos[:, :2] = mesh_marker_pos[:, :2] - self.center_m[:2]
         
         # Store transformed positions in meters
         self.mesh_marker_pos = mesh_marker_pos
@@ -327,14 +327,14 @@ class MocapServer:
                     
                     # Send all marker positions in millimeters
                     # Format: [x1,x2,x3,..., y1,y2,y3,..., z1,z2,z3,...]
-                    x_values = self.mesh_marker_pos_mm[:, 0]
-                    y_values = self.mesh_marker_pos_mm[:, 1]
-                    z_values = self.mesh_marker_pos_mm[:, 2]
-                    flat_positions = np.concatenate([x_values, y_values, z_values])
+                    x_mm = self.mesh_marker_pos_mm[:, 0]
+                    y_mm = self.mesh_marker_pos_mm[:, 1]
+                    z_mm = self.mesh_marker_pos_mm[:, 2]
+                    flat_positions = np.concatenate([x_mm, y_mm, z_mm])
                     
                     if self.config.NN_enable:
                         # normalize the input
-                        mocap_input = self.normalize_input(x_values, y_values, z_values, self.radius, self.gap)
+                        mocap_input = self.normalize_input(x_mm, y_mm, z_mm, self.radius_m, self.gap_m)
                         predicted_coefficients = self.process_input(mocap_input)
                         self.last_coefficients = predicted_coefficients
                         self.display.update_coefficients(predicted_coefficients)
