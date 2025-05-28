@@ -167,3 +167,7 @@ cython_debug/
 data\ analysis/analysis\ output/
 data\ analysis/error_animations/
 data\ analysis/dic_nn_comparisons/
+data\ analysis/data/obsolete data/
+data\ analysis/data/pretest
+data\ analysis/data/
+figures/

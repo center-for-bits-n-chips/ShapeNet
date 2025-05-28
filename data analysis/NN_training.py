@@ -19,8 +19,8 @@ radius = 250.0 # mm
 
 # Load data from .dat file instead of CSV
 print("Reading data file...")
-dat_filename = "data/2025-05-26 28 mm stabilized pull-in.dat"
-voltages, positions, time = read_labview_binary(dat_filename, decimate=100)  # Using decimate=10 to reduce data similar to original
+dat_filename = "data/2025-05-26 15 mm ramp 0.5 mmps.dat"
+voltages, positions, time = read_labview_binary(dat_filename, decimate=1)  # Using decimate=10 to reduce data similar to original
 mesh_voltage = voltages[:,0] - voltages[:,1]
 
 # Calculate cylindrical coordinates
@@ -55,7 +55,7 @@ def generate_basis_functions(r, theta, N):
     return torch.stack(basis_functions, dim=1)  # Shape: (n_markers, n_basis)
 
 # Generate shapes data table
-n_permutations = 15  # Number of random permutations to generate per shape
+n_permutations = 1  # Number of random permutations to generate per shape
 for i in range(n_shapes):
     volt = mesh_voltage[i]
     mocap_z = torch.tensor(z[i] * 1/gap)  # normalized

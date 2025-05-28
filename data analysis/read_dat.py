@@ -362,8 +362,8 @@ def main():
     num_markers = 15
     num_voltages = 11
     
-    filename = "data/2025-05-26 28 mm stabilized pull-in.dat"
-    voltages, positions, time = read_labview_binary(filename, num_markers=num_markers, num_voltages=num_voltages, decimate=1000)
+    filename = "data/2025-05-26 15 mm ramp 0.5 mmps.dat"
+    voltages, positions, time = read_labview_binary(filename, num_markers=num_markers, num_voltages=num_voltages, decimate=1)
     print("\nGenerating plots...")
 
     # Plot marker locations at different frames

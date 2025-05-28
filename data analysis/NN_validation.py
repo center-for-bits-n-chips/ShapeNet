@@ -19,7 +19,7 @@ from shapenet_utils import (
     create_plotly_animation
 )
 
-def load_and_prepare_data(dat_filename, n_basis, n_markers, radius, gap, decimate=1000):
+def load_and_prepare_data(dat_filename, n_basis, n_markers, radius, gap, decimate=1):
     """
     Load data from .dat file and prepare for processing.
     
@@ -259,7 +259,7 @@ def validate_and_visualize_samples(model, X_tensor, y_tensor, bessel_zeros, n_ba
         sample_q = sample_X[0].item()  # Get voltage value
 
         print(f"\nProcessing sample {index+1}/{len(X_tensor)} (Voltage: {sample_q:.2f}V)...")
-        
+
         # Use the model to predict the coefficients
         with torch.no_grad():
             predicted_coefficients = model(sample_X.unsqueeze(0)).numpy().flatten()
@@ -405,7 +405,8 @@ def plot_coefficients_vs_voltage(model, X_tensor, y_tensor):
     actual_coefficients = []
     
     # Process each sample
-    for idx in range(len(X_tensor)):
+    # for idx in range(len(X_tensor)):
+    for idx in range(50, 2001, 200):
         sample_X = X_tensor[idx]
         sample_y = y_tensor[idx]
         voltage = sample_X[0].item()
@@ -414,6 +415,8 @@ def plot_coefficients_vs_voltage(model, X_tensor, y_tensor):
         # Get actual coefficients
         actual_coefficients.append(sample_y.numpy().flatten())
         
+        print(sample_X)
+
         # Get NN predictions
         with torch.no_grad():
             predicted = model(sample_X.unsqueeze(0)).numpy().flatten()
@@ -462,7 +465,7 @@ def main():
     n_markers = 15  # Number of motion capture markers
     gap = 37.0  # mm
     radius = 250.0  # mm
-    dat_filename = "data/2025-05-26 28 mm stabilized pull-in.dat"
+    dat_filename = "data/2025-05-26 15 mm ramp 0.5 mmps take 2.dat"
     model_filename = 'shape_net_model.pth'
     
     # Load and prepare data
@@ -494,11 +497,11 @@ def main():
     
     # Create animations
     print("\n5. Creating animations...")
-    animation_files = create_animations(model, X_tensor, y_tensor, bessel_zeros, n_basis, radius, gap)
+    #animation_files = create_animations(model, X_tensor, y_tensor, bessel_zeros, n_basis, radius, gap)
     
     # Plot maximum displacement vs voltage
     print("\n6. Plotting maximum displacement vs voltage...")
-    max_displacement_file = plot_max_displacement_vs_voltage(model, X_tensor, y_tensor, bessel_zeros, n_basis, radius, gap)
+    #max_displacement_file = plot_max_displacement_vs_voltage(model, X_tensor, y_tensor, bessel_zeros, n_basis, radius, gap)
     
     # Plot coefficients vs voltage
     print("\n7. Plotting coefficients vs voltage...")
