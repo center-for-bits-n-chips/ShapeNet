@@ -19,8 +19,8 @@ radius = 250.0 # mm
 
 # Load data from .dat file instead of CSV
 print("Reading data file...")
-dat_filename = "data/2025-05-26 15 mm ramp 0.5 mmps.dat"
-voltages, positions, time = read_labview_binary(dat_filename, decimate=1)  # Using decimate=10 to reduce data similar to original
+dat_filename = "data/2025-05-27 case B.dat"
+voltages, positions, time = read_labview_binary(dat_filename, decimate=100)  # Using decimate=10 to reduce data similar to original
 mesh_voltage = voltages[:,0] - voltages[:,1]
 
 # Calculate cylindrical coordinates

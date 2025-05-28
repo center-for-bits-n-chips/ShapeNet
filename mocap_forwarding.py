@@ -24,7 +24,7 @@ class MocapConfig:
     display_update_rate: float = 10.0  # Hz
     tare: bool = True  # Whether to subtract the initial offset
     n_basis: int = 3
-    model_path: str = 'shape_net_model.pth'
+    model_path: str = 'case A shape_net_model.pth'
     hidden_size: int = 32
     NN_enable: bool = False
 

@@ -363,7 +363,7 @@ def main():
     num_voltages = 11
     
     filename = "data/2025-05-27 case A.dat"
-    voltages, positions, time = read_labview_binary(filename, num_markers=num_markers, num_voltages=num_voltages, decimate=1000)
+    voltages, positions, time = read_labview_binary(filename, num_markers=num_markers, num_voltages=num_voltages, decimate=100)
     print("\nGenerating plots...")
 
     # Plot marker locations at different frames

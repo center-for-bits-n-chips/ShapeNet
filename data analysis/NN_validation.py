@@ -414,9 +414,6 @@ def plot_coefficients_vs_voltage(model, X_tensor, y_tensor):
         
         # Get actual coefficients
         actual_coefficients.append(sample_y.numpy().flatten())
-        
-        print(sample_X)
-
         # Get NN predictions
         with torch.no_grad():
             predicted = model(sample_X.unsqueeze(0)).numpy().flatten()
@@ -465,13 +462,13 @@ def main():
     n_markers = 15  # Number of motion capture markers
     gap = 37.0  # mm
     radius = 250.0  # mm
-    dat_filename = "data/2025-05-26 15 mm ramp 0.5 mmps take 2.dat"
+    dat_filename = "data/2025-05-27 case A.dat"
     model_filename = 'shape_net_model.pth'
     
     # Load and prepare data
     print("\n1. Loading and preparing data...")
     shape_df, bessel_zeros = load_and_prepare_data(
-        dat_filename, n_basis, n_markers, radius, gap
+        dat_filename, n_basis, n_markers, radius, gap, decimate=10
     )
     
     # Prepare X and y for validation
@@ -501,11 +498,11 @@ def main():
     
     # Plot maximum displacement vs voltage
     print("\n6. Plotting maximum displacement vs voltage...")
-    #max_displacement_file = plot_max_displacement_vs_voltage(model, X_tensor, y_tensor, bessel_zeros, n_basis, radius, gap)
+    max_displacement_file = plot_max_displacement_vs_voltage(model, X_tensor, y_tensor, bessel_zeros, n_basis, radius, gap)
     
     # Plot coefficients vs voltage
     print("\n7. Plotting coefficients vs voltage...")
-    coefficients_file = plot_coefficients_vs_voltage(model, X_tensor, y_tensor)
+    #coefficients_file = plot_coefficients_vs_voltage(model, X_tensor, y_tensor)
     
     print("\nValidation and visualization complete!")
     # print(f"Created {len(created_files)} visualization files and animations.")
