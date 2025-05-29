@@ -362,7 +362,7 @@ def main():
     num_markers = 15
     num_voltages = 11
     
-    filename = "data/2025-05-27 case A.dat"
+    filename = "data/2025-05-27 case B.dat"
     voltages, positions, time = read_labview_binary(filename, num_markers=num_markers, num_voltages=num_voltages, decimate=100)
     print("\nGenerating plots...")
 
@@ -411,10 +411,10 @@ def main():
                 marker='.')
     
     # Fit polynomial to experimental data
-    voltage_poly, coeffs = fit_voltage_polynomial(positions[:end_index, 7, 2], mesh_voltage, degree=5)
+    voltage_poly, coeffs = fit_voltage_polynomial(positions[:end_index, 7, 2], mesh_voltage, degree=3)
     
     # Test the polynomial with some example positions
-    test_positions = np.linspace(positions[:end_index, 7, 2].min(), positions[:end_index, 4, 2].max(), 100)
+    test_positions = np.linspace(positions[:end_index, 7, 2].min(), 35, 100)
     predicted_voltages = voltage_poly(test_positions)
     
     # Plot the polynomial fit

@@ -276,17 +276,66 @@ def create_shape_animation(x_centered, y_centered, z, coefficients, n_basis=5, r
     print(f"Saved interactive Plotly animation to '{output_path}'")
     
     return output_path
+
+def plot_cross_sections(x_centered_list, z_list, time_s, all_coefficients, n_basis=3, radius=250):
+    """Plot cross-sections of reconstructed shape vs x at y=0 for all frames."""
+    plt.figure(figsize=(12, 6))
+    
+    # Create a colormap for the frames
+    colors = plt.cm.viridis(np.linspace(0, 1, len(time_s)))
+    
+    # Generate Bessel zeros
+    bessel_zeros = []
+    for m in range(2):
+        zeros = jn_zeros(m, n_basis)
+        bessel_zeros.extend(zeros)
+    
+    # Create x points for reconstruction
+    x_points = np.linspace(-radius, radius, 200)
+    y_points = np.zeros_like(x_points)  # y=0 for cross-section
+    
+    # Convert to polar coordinates for basis functions
+    r = np.sqrt(x_points**2 + y_points**2)
+    theta = np.arctan2(y_points, x_points)
+    
+    # Generate basis functions for plotting
+    # Reshape to match expected input format
+    r_tensor = torch.tensor(r).reshape(-1, 1)
+    theta_tensor = torch.tensor(theta).reshape(-1, 1)
+    basis_functions = generate_basis_functions_for_plot(r_tensor, theta_tensor, n_basis, bessel_zeros).detach().numpy()
+    
+    for frame_idx in range(len(time_s)):
+        # Get coefficients for this frame
+        coefficients = all_coefficients[frame_idx]
+        
+        # Calculate reconstructed z values using basis functions
+        reconstructed_z = np.dot(basis_functions, coefficients)
+        
+        # Plot reconstructed shape
+        plt.plot(x_points, reconstructed_z, 
+                color=colors[frame_idx], 
+                alpha=0.5,
+                label=f't={time_s[frame_idx]:.2f}s' if frame_idx % 5 == 0 else None)
+    
+    plt.xlabel('X (mm)')
+    plt.ylabel('Z (mm)')
+    plt.title('Cross-section of Reconstructed Shape at Y=0')
+    plt.grid(True)
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.tight_layout()
+    plt.show()
+
 def main():
     # Directory containing the DIC data
-    directory = '28 mm closed loop take 1'
+    directory = 'data/DIC/2025-05-27 case A'
     
     # Read DIC data
     print("Reading DIC data files...")
-    data_frames, time_s, voltage_kV = get_dic_data(directory)
+    data_frames, time_s = get_dic_data(directory)
     print(f"Successfully read {len(data_frames)} frames")
     
     # Initialize arrays to store coefficients and errors
-    n_basis = 2
+    n_basis = 3
     all_coefficients = np.zeros((len(data_frames), 3 * n_basis))
     all_rmse = np.zeros(len(data_frames))
     
@@ -323,10 +372,13 @@ def main():
         print(f"Coefficients: {coefficients}")
     
     # Create animation
-    create_shape_animation(x_centered_list, y_centered_list, z_list, all_coefficients, n_basis, radius)
+    #create_shape_animation(x_centered_list, y_centered_list, z_list, all_coefficients, n_basis, radius)
     
     # Plot coefficients over time
     plot_coefficients_over_time(time_s, all_coefficients, n_basis)
+    
+    # Plot cross-sections of reconstructed shape
+    plot_cross_sections(x_centered_list, z_list, time_s, all_coefficients, n_basis, radius)
     
     # Plot mean squared error over time
     plt.figure(figsize=(10, 5))

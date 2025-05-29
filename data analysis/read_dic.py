@@ -15,6 +15,12 @@ def get_dic_data(directory, DIC_sample_rate_s=1):
     # Get all CSV files in the directory
     files = sorted(glob(os.path.join(directory, 'd*.csv')))
     
+    # Read each file and associate with corresponding time/voltage data
+    data_frames = []
+    for file in files:
+        df = read_dic_file(file)
+        data_frames.append(df)
+
     # Read voltage data
     voltage_file = os.path.join(directory, 'V0001.csv')
     if os.path.exists(voltage_file):
@@ -24,13 +30,10 @@ def get_dic_data(directory, DIC_sample_rate_s=1):
         time_s = DIC_sample_rate_s * voltage_df['Index'].values.astype(float)
         #time_s = 0.001 * voltage_df['Time'].values.astype(float)
 
-    # Read each file and associate with corresponding time/voltage data
-    data_frames = []
-    for file in files:
-        df = read_dic_file(file)
-        data_frames.append(df)
-
-    return data_frames, time_s, voltage_kV
+        return data_frames, time_s, voltage_kV
+    
+    time_s = DIC_sample_rate_s * np.arange(len(data_frames))
+    return data_frames, time_s
 
 def plot_membrane_deformation(data_frames, frame_index):
     """Plot the membrane deformation for a specific frame."""
