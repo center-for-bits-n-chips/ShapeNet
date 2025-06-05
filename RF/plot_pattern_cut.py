@@ -88,6 +88,11 @@ target_freq_mhz = FREQUENCY_GHZ * 1000
 plt.figure(figsize=(8, 8))  # Made taller to accommodate both plots
 plt.subplot(2, 1, 1)  # Top subplot for gain
 
+# Read FEKO simulation data
+feko_data = np.loadtxt('measured pattern 30 GHz COMSOL f_D 1.3', skiprows=2)
+feko_angles = feko_data[:, 0]
+feko_gains = feko_data[:, 1]
+
 # Process each file
 for file_path in file_paths:
     # Read all lines from the file
@@ -197,14 +202,18 @@ for file_path in file_paths:
         print(f"Error processing {file_path}: {str(e)}")
         continue
 
-# Configure top subplot (gain pattern)
+# Plot COMSOL simulation data
 plt.subplot(2, 1, 1)
+plt.plot(feko_angles, feko_gains, '--', label='FEKO Simulation', color='gray', alpha=0.7)
+
+# Configure top subplot (gain pattern)
 plt.xlim(-8, 8)
 plt.ylim(-20, 50)
 plt.xlabel('Azimuth Angle [deg]')
 plt.ylabel('Gain [dBi]')
 plt.title(f'{FREQUENCY_GHZ} GHz')
 plt.grid(True)
+plt.legend()
 
 plt.tight_layout()
 plt.show()
