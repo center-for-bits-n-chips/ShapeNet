@@ -18,7 +18,7 @@ np.set_printoptions(linewidth=np.inf)
 
 @dataclass
 class MocapConfig:
-    num_mesh_markers: int = 15
+    num_mesh_markers: int = 14
     z_axis: np.ndarray = np.array([0, 0, -1])
     center_m: np.ndarray = np.array([0, 0, 0])
     display_update_rate: float = 10.0  # Hz
@@ -300,7 +300,7 @@ class MocapServer:
         """Handle interaction with a single connected client."""
         print(f"Connected by {addr}")
         conn.settimeout(0.1)
-        TIMEOUT_THRESHOLD = 0.03  # 30 ms timeout threshold
+        TIMEOUT_THRESHOLD = 0.1  # 100 ms timeout threshold
 
         try:
             while True:
