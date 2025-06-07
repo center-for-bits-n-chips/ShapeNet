@@ -6,6 +6,7 @@ import threading
 import pyqtgraph as pg
 import pyqtgraph.opengl as gl
 from pyqtgraph.Qt import QtCore, QtGui
+from mocap_forwarding import OfflineFactors
 
 class MoCapVisualizer:
     def __init__(self, mocap_server, update_rate=30, z_scale=1.0):
@@ -42,11 +43,11 @@ class MoCapVisualizer:
             self.mesh_marker_pos_vis[:, 2] *= self.z_scale
             
             # Create circle in XY plane (already in transformed space)
-            theta = np.linspace(0, 2*np.pi, 100)
+            theta = np.linspace(0, 2*np.pi, 20)
             self.radius_m = self.mocap_server.radius_m
             
             # Generate circle points
-            circle_points = np.zeros((100, 3))
+            circle_points = np.zeros((20, 3))
             circle_points[:, 0] = self.radius_m * np.cos(theta)
             circle_points[:, 1] = self.radius_m * np.sin(theta)
             circle_points[:, 2] = 0.0
@@ -68,7 +69,7 @@ class MoCapVisualizer:
                 }
                 
                 # Add neural network coefficients if available
-                if self.mocap_server.config.NN_enable and self.mocap_server.last_coefficients is not None:
+                if (self.mocap_server.config.NN_enable or self.mocap_server.config.LS_enable) and self.mocap_server.last_coefficients is not None:
                     data_package['coefficients'] = self.mocap_server.last_coefficients
             
             # Send data to visualization process if queue isn't full
@@ -92,7 +93,7 @@ class MoCapVisualizer:
             # Start the visualization process
             self.process = Process(
                 target=visualization_process,
-                args=(self.data_queue, self.mocap_server.config.num_mesh_markers, self.update_rate)
+                args=(self.data_queue, self.mocap_server.config.num_mesh_markers, self.mocap_server.gap_m, self.z_scale, self.mocap_server.pre, self.mocap_server.config.NN_enable, self.mocap_server.config.LS_enable, self.update_rate)
             )
             self.process.daemon = True  # Process will exit when main program exits
             self.process.start()
@@ -130,8 +131,14 @@ class MoCapVisualizer:
             
             print("Visualization stopped")
 
+def reconstruct_field(a: np.ndarray, pre: OfflineFactors, grid_r: np.ndarray, grid_theta: np.ndarray) -> np.ndarray:
+    """Return w(r, θ) on the provided polar grid."""
+    w = np.zeros_like(grid_r)
+    for coeff, mode in zip(a, pre.modes):
+        w += coeff * mode.phi(grid_r, grid_theta)
+    return w
 
-def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
+def visualization_process(data_queue, config_num_mesh_markers, gap_m, z_scale, pre, NN_enable, LS_enable, update_rate=30):
     """
     Separate process function for visualization using PyQtGraph
     """
@@ -218,21 +225,24 @@ def visualization_process(data_queue, config_num_mesh_markers, update_rate=30):
                 # Update ShapeNet mesh if coefficients are available
                 if 'coefficients' in data and data['coefficients'] is not None:
                     # Generate mesh grid for reconstruction
-                    r_full = np.linspace(0, 1.0, 50)
-                    theta_full = np.linspace(0, 2*np.pi, 50)
+                    N_GRID = 50
+                    r_full = np.linspace(0, 1.0, N_GRID)
+                    theta_full = np.linspace(0, 2*np.pi, N_GRID)
                     Theta, R = np.meshgrid(theta_full, r_full, indexing='ij')
 
-                    # Generate basis functions
-                    basis_functions = generate_basis_functions_for_surface(R, Theta, 3)  # Using 3 basis functions
-                    Z = np.dot(basis_functions, data['coefficients'])
+                    if NN_enable:
+                        # Generate basis functions
+                        basis_functions = generate_basis_functions_for_surface(R, Theta, 3)  # Using 3 basis functions
+                        Z = np.dot(basis_functions, data['coefficients'])
+                    elif LS_enable:
+                        Z = reconstruct_field(data['coefficients'], pre, R, Theta)
                     
                     # Convert to Cartesian coordinates
                     X = radius_m * R * np.cos(Theta)
                     Y = radius_m * R * np.sin(Theta)
 
                     # Scale for visualization using mocap server's z_scale
-                    gap_m = 37*1e-3
-                    Z *= 3.0 * gap_m
+                    Z *= z_scale * gap_m
 
                     # Create color gradient based on Z values
                     colors = np.zeros((X.size, 4), dtype=float)

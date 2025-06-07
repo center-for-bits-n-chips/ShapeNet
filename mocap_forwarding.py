@@ -1,11 +1,12 @@
+from __future__ import annotations
 import sys
 from NatNet.NatNetClient import NatNetClient
 import socket
 import struct
 import numpy as np
+
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
-import os
 import time
 from threading import Thread, Event
 from digital_display import DigitalDisplay
@@ -13,20 +14,49 @@ from digital_display import DigitalDisplay
 import torch
 from ShapeNet.ShapeNet import ShapeNet
 from torch.special import bessel_j0, bessel_j1
-from scipy.special import jn_zeros
+from scipy.special import jn, jn_zeros
 np.set_printoptions(linewidth=np.inf)
 
 @dataclass
 class MocapConfig:
-    num_mesh_markers: int = 15
+    num_mesh_markers: int = 14
     z_axis: np.ndarray = np.array([0, 0, -1])
     center_m: np.ndarray = np.array([0, 0, 0])
     display_update_rate: float = 10.0  # Hz
     tare: bool = True  # Whether to subtract the initial offset
-    n_basis: int = 3
+    n_basis: int = 1 # number of angular zeros
+    m_basis: int = 2 # number of radial zeros
+    tikhonov_weight: float = 1e-2
     model_path: str = 'case A shape_net_model.pth'
     hidden_size: int = 32
     NN_enable: bool = False
+    LS_enable: bool = True
+
+@dataclass
+class Mode:
+    """Single (n, m) Bessel mode with either cos(nθ) or sin(nθ) angular part."""
+
+    n: int               # angular order
+    k: float             # k_{n,m} satisfying J_n(k) = 0
+    kind: str            # 'cos' or 'sin'
+    omega: float         # energy weighting (k^2 for tensioned membrane)
+
+    def phi(self, r: np.ndarray, theta: np.ndarray) -> np.ndarray:
+        """Evaluate this mode at polar coords (r, θ)."""
+        base = jn(self.n, self.k * r)
+        if self.kind == "cos":
+            return base * np.cos(self.n * theta)
+        else:
+            return base * np.sin(self.n * theta)
+
+@dataclass
+class OfflineFactors:
+    """Container holding pre-computed matrices for fast online reconstruction."""
+    W_inv: np.ndarray         # diag(1 / sqrt(ω_j)) (M, M)
+    Phi_tilde: np.ndarray     # Φ·W_inv              (N, M)
+    G: np.ndarray             # Φ~ Φ~ᵀ               (N, N)
+    lam: float                # regularisation gain
+    modes: List[Mode]         # basis (for field reconstruction)
 
 class MocapServer:
     def __init__(self, config: MocapConfig = MocapConfig()):
@@ -36,7 +66,7 @@ class MocapServer:
         self.normal = np.array([0, 0, -1])
         self.center_m = np.array([0, 0, 0])
         self.radius_m = 250.0*1e-3
-        self.gap_m = 37.0*1e-3
+        self.gap_m = 35.0*1e-3
         self.flag_calibrate = True
         self.plane_normal = np.array([0, 0, -1])
         self.plane_centroid = np.array([0, 0, 0])
@@ -67,8 +97,7 @@ class MocapServer:
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             self.model.to(device)
             self.model.eval()
-            self.bessel_zeros = self.create_bessel_zeros_table(config.n_basis)
-
+            
     def __del__(self):
         """Cleanup when the server is destroyed."""
         if hasattr(self, 'display'):
@@ -84,11 +113,10 @@ class MocapServer:
         
         with torch.no_grad():  # Disable gradient computation for evaluation
             predicted_coefficients = self.model(full_input).numpy().flatten()
-            self.last_coefficients = predicted_coefficients  # Store the coefficients
-        
+            
         return predicted_coefficients
 
-    def normalize_input(self, x_mm, y_mm, z_mm, radius_m, gap_m):
+    def normalize_NN_input(self, x_mm, y_mm, z_mm, radius_m, gap_m):
         r_mm, theta = self.cartesian_to_polar_numpy(x_mm, y_mm)
         r_normalized = r_mm / (radius_m*1e3)
         z_normalized = z_mm / (gap_m*1e3) # covert z from meters to mm
@@ -157,7 +185,10 @@ class MocapServer:
     def initial_calibration(self) -> None:
         """Calculate rim parameters and initial z-offsets from marker positions."""
         rim_marker_pos = list(self.rim_marker_positions.values())
-        mesh_marker_pos = sorted(list(self.mesh_marker_positions.values()), key=lambda pos: pos[0])
+
+        # sort the markers by x position, note that this causes problems where markers switch IDs if they are close enough in x
+        #mesh_marker_pos = sorted(list(self.mesh_marker_positions.values()), key=lambda pos: pos[0])
+        mesh_marker_pos = list(self.mesh_marker_positions.values())
         
         # First calculate best fit plane from mesh markers
         if len(mesh_marker_pos) != self.config.num_mesh_markers:
@@ -238,9 +269,73 @@ class MocapServer:
             self.flag_calibrate = False
             print("Finished Calculating Rim\n")
 
+            # transform the marker positions
+            self.transform_marker_positions()
+
+            # calculate mocap probe points
+            probe_x = self.mesh_marker_pos[:, 0]
+            probe_y = self.mesh_marker_pos[:, 1]
+
+            # ---------------------------- Build basis & measurement matrix -----------
+            modes = self.build_modes(self.config.n_basis, self.config.m_basis)              # M modes
+            Phi = self.build_measurement_matrix(probe_x, probe_y, modes)
+
+            # ---------------------------- OFFLINE stage ------------------------------
+            self.pre = self.precompute_factors(Phi, modes, lam=self.config.tikhonov_weight)
+
+    def normalize_LS_input(self, x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Convert (x, y) array → (r, θ)."""
+        r = np.hypot(x, y) / self.radius_m
+        theta = np.arctan2(y, x)
+        return r, theta
+
+    def build_measurement_matrix(self, probe_x: np.ndarray, probe_y: np.ndarray, modes: List[Mode]) -> np.ndarray:
+        """Assemble Φ where Φ[i,j] = φ_j(r_i, θ_i)."""
+        r, theta = self.normalize_LS_input(probe_x, probe_y)
+        N = probe_x.shape[0]
+        M = len(modes)
+        Phi = np.empty((N, M), dtype=float)
+        for j, mode in enumerate(modes):
+            Phi[:, j] = mode.phi(r, theta)
+        return Phi
+
+    def recover_modes(self, z: np.ndarray, pre: OfflineFactors) -> np.ndarray:
+        """Compute modal coefficients a from probe displacements z (length N)."""
+        # Solve small N×N system: (G + λ² I) y = z
+        N = pre.G.shape[0]
+        rhs = np.linalg.solve(pre.G + pre.lam ** 2 * np.eye(N), z)
+        # a = W_inv · Φ~ᵀ · y
+        a = pre.W_inv @ (pre.Phi_tilde.T @ rhs)
+        return a  # shape (M,)
+
+    def build_modes(self, max_n: int = 3, max_m: int = 3) -> List[Mode]:
+        """Generate Bessel modes up to n ≤ max_n and the first max_m radial roots.
+
+        Returns a list of Mode objects.
+        """
+        modes: List[Mode] = []
+        for n in range(max_n + 1):
+            roots = jn_zeros(n, max_m)
+            for k in roots:
+                # cos term
+                modes.append(Mode(n, k, "cos", omega=k**2))
+                # add sin term for non-axisymmetric n≥1
+                if n > 0:
+                    modes.append(Mode(n, k, "sin", omega=k**2))
+        return modes
+
+    def precompute_factors(self, Phi: np.ndarray, modes: List[Mode], lam: float = 1e-3) -> OfflineFactors:
+        """Compute and store matrices needed for the dual-form online solve."""
+        omega = np.array([m.omega for m in modes])
+        W_inv = np.diag(1.0 / np.sqrt(omega))            # (M, M)
+        Phi_tilde = Phi @ W_inv                          # (N, M)
+        G = Phi_tilde @ Phi_tilde.T                      # (N, N)
+        return OfflineFactors(W_inv=W_inv, Phi_tilde=Phi_tilde, G=G, lam=lam, modes=modes)
+    
     def transform_marker_positions(self) -> None:
         """Transform marker positions based on rim parameters and best fit plane."""
-        mesh_marker_pos = sorted(list(self.mesh_marker_positions.values()), key=lambda pos: pos[0])
+        #mesh_marker_pos = sorted(list(self.mesh_marker_positions.values()), key=lambda pos: pos[0])
+        mesh_marker_pos = list(self.mesh_marker_positions.values())
         rim_marker_pos = list(self.rim_marker_positions.values())
         
         # Convert to numpy arrays
@@ -268,39 +363,11 @@ class MocapServer:
         
         self.display.update_positions(dict(zip(range(len(mesh_marker_pos)), self.mesh_marker_pos_mm)))
 
-    def create_bessel_zeros_table(self, n_basis):
-        """
-        Create a table of Bessel function zeros.
-        
-        Args:
-            n_basis: Number of zeros for basis functions
-            
-        Returns:
-            List of Bessel function zeros
-        """
-        bessel_zeros = []
-        for m in range(2):
-            zeros = jn_zeros(m, n_basis)
-            bessel_zeros.extend(zeros)
-        return bessel_zeros
-
-    def generate_basis_functions_for_surface(self, r, theta, N):
-        basis_functions = []
-        for k in range(N):
-            n = k + 1 # indexing by n = 1, 2, 3
-            phi_n = bessel_j0(self.bessel_zeros[k]*r)
-            phi_n_sin = bessel_j1(self.bessel_zeros[self.n_basis + k]*r) * torch.sin(theta)
-            phi_n_cos = bessel_j1(self.bessel_zeros[self.n_basis + k]*r) * torch.cos(theta)
-            basis_functions.append(phi_n)
-            basis_functions.append(phi_n_sin)
-            basis_functions.append(phi_n_cos)
-        return torch.stack(basis_functions, dim=2)  # Shape: (n_samples, n_basis)
-
     def handle_client(self, conn: socket.socket, addr: Tuple[str, int]) -> None:
         """Handle interaction with a single connected client."""
         print(f"Connected by {addr}")
         conn.settimeout(0.1)
-        TIMEOUT_THRESHOLD = 0.03  # 30 ms timeout threshold
+        TIMEOUT_THRESHOLD = 0.1  # 100 ms timeout threshold
 
         try:
             while True:
@@ -332,12 +399,33 @@ class MocapServer:
                     z_mm = self.mesh_marker_pos_mm[:, 2]
                     flat_positions = np.concatenate([x_mm, y_mm, z_mm])
                     
+                    # update the shape estimate
                     if self.config.NN_enable:
                         # normalize the input
-                        mocap_input = self.normalize_input(x_mm, y_mm, z_mm, self.radius_m, self.gap_m)
-                        predicted_coefficients = self.process_input(mocap_input)
-                        self.last_coefficients = predicted_coefficients
-                        self.display.update_coefficients(predicted_coefficients)
+                        mocap_input = self.normalize_NN_input(x_mm, y_mm, z_mm, self.radius_m, self.gap_m)
+                        NN_predicted_coefficients = self.process_input(mocap_input)
+                        self.last_coefficients = NN_predicted_coefficients
+                        self.display.update_coefficients(NN_predicted_coefficients)
+
+                    if self.config.LS_enable:
+                        LS_predicted_coefficients = self.recover_modes(z_mm / (self.gap_m * 1e3), self.pre)
+
+                        N_GRID = 50
+                        r_full = np.linspace(0, 0.2, N_GRID)
+                        theta_full = np.linspace(0, 2*np.pi, N_GRID)
+                        Theta, R = np.meshgrid(theta_full, r_full, indexing='ij')
+                        Z = self.reconstruct_field(LS_predicted_coefficients, self.pre, R, Theta)
+
+                        nadir_index = np.unravel_index(np.argmax(Z, axis=None), Z.shape)
+                        nadir_r = R[nadir_index]
+                        nadir_theta = Theta[nadir_index]
+                        nadir_z_mm = np.max(Z) * self.gap_m * 1e3
+                        nadir_x_mm = self.radius_m * 1e3 * nadir_r * np.cos(nadir_theta)
+                        nadir_y_mm = self.radius_m * 1e3 * nadir_r * np.sin(nadir_theta)
+
+                        self.last_coefficients = LS_predicted_coefficients
+                        self.display.update_coefficients(LS_predicted_coefficients)
+                        self.display.update_nadir(nadir_x_mm, nadir_y_mm, nadir_z_mm)
 
                     format_string = '>' + 'd' * len(flat_positions)
                     conn.sendall(struct.pack(format_string, *flat_positions))
@@ -350,6 +438,13 @@ class MocapServer:
         finally:
             conn.close()
             print(f"Connection with {addr} closed.\n\n\n")
+
+    def reconstruct_field(self, a: np.ndarray, pre: OfflineFactors, grid_r: np.ndarray, grid_theta: np.ndarray) -> np.ndarray:
+        """Return w(r, θ) on the provided polar grid."""
+        w = np.zeros_like(grid_r)
+        for coeff, mode in zip(a, pre.modes):
+            w += coeff * mode.phi(grid_r, grid_theta)
+        return w
 
     def receive_labeled_marker(self, marker_id: int, model_id: int, position: List[float]) -> None:
         """Handle labeled marker data from OptiTrack."""
@@ -397,11 +492,12 @@ def main():
         "clientAddress": "127.0.0.1",
         "serverAddress": "127.0.0.1",
         "use_multicast": False,
-        "enable_visualization": True,
+        "enable_visualization": False,
         "enable_display": True,
         "tare": True,  # Default to true
         "z_scale": 1.0,  # Scale factor for z-direction visualization
-        "NN_enable": False  # Default to false
+        "NN_enable": False,  # Default to false
+        "LS_enable": True,
     }
     
     if len(sys.argv) > 1:
@@ -414,8 +510,11 @@ def main():
         options["z_scale"] = float(sys.argv[4])
     if len(sys.argv) > 5:
         options["NN_enable"] = sys.argv[5].lower() != "false"
+    if len(sys.argv) > 6:
+        options["LS_enable"] = sys.argv[6].lower() != "false"
+
     # Create config with tare option
-    config = MocapConfig(tare=options["tare"], NN_enable=options["NN_enable"])
+    config = MocapConfig(tare=options["tare"], NN_enable=options["NN_enable"], LS_enable=options["LS_enable"])
     mocap_server = MocapServer(config)
 
     # Initialize NatNet client
