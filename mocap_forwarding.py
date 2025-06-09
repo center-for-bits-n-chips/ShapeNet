@@ -1,3 +1,4 @@
+from __future__ import annotations
 import sys
 from NatNet.NatNetClient import NatNetClient
 import socket
@@ -13,7 +14,7 @@ from digital_display import DigitalDisplay
 import torch
 from ShapeNet.ShapeNet import ShapeNet
 from torch.special import bessel_j0, bessel_j1
-from scipy.special import jn_zeros
+from scipy.special import jn, jn_zeros
 np.set_printoptions(linewidth=np.inf)
 
 @dataclass

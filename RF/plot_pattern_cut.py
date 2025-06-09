@@ -54,7 +54,7 @@ def find_sidelobes(angles, gains):
     return sidelobes
 
 # Parameter to specify frequency in GHz
-FREQUENCY_GHZ = 30  # Options: 30, 35, or 40
+FREQUENCY_GHZ = 35  # Options: 30, 35, or 40
 
 wavelength = 299792458 / (FREQUENCY_GHZ * 1e9) # meters
 diameter = 0.5 # meters
@@ -79,6 +79,7 @@ file_paths = [
     #'LL measurements/EAR_DISH_EL_CUT_13_6_3_2025_044.std',
     #'LL measurements/EAR_DISH_EL_CUT_22_6_3_2025_055.std',
     'LL measurements/EAR_DISH_AZ_CUT_LONG_23_6_3_2025_056.std',
+    'LL measurements/EAR_DISH_AZ_LONG_CUT_31_6_3_2025_064.std',
 ]
 
 # Convert target frequency from GHz to MHz
@@ -136,7 +137,10 @@ for file_path in file_paths:
         phase_sorted = phase_vals[sort_idx]
         
         # Apply azimuth offset
-        az_offset = 0.7
+        if file_path == 'LL measurements/EAR_DISH_AZ_LONG_CUT_31_6_3_2025_064.std':
+            az_offset = 0.0
+        else:
+            az_offset = 0.7
         ang_sorted = ang_sorted + az_offset
         
         # Calculate HPBW
@@ -147,46 +151,47 @@ for file_path in file_paths:
         max_gain_angle = ang_sorted[np.argmax(gain_sorted)]
         sidelobes = find_sidelobes(ang_sorted, gain_sorted)
         
+        plt.subplot(2, 1, 1)
         # Plot the gain pattern
         plt.plot(ang_sorted, gain_sorted, label=f'{file_path.split("/")[-1]}')
         
         # Plot HPBW markers
-        if hpbw is not None:
-            plt.plot([left_cross, left_cross], [max_gain-3, max_gain-3-5], 'r--')
-            plt.plot([right_cross, right_cross], [max_gain-3, max_gain-3-5], 'r--')
-            # Add HPBW text annotation
-            plt.annotate(f'HPBW = {hpbw:.2f}°', 
-                        xy=((left_cross + right_cross)/2, max_gain-6),
-                        xytext=(0, -15),
-                        textcoords='offset points',
-                        ha='center',
-                        color='red',
-                        bbox=dict(facecolor='white', edgecolor='none', alpha=0.7))
+        # if hpbw is not None:
+        #     plt.plot([left_cross, left_cross], [max_gain-3, max_gain-3-5], 'r--')
+        #     plt.plot([right_cross, right_cross], [max_gain-3, max_gain-3-5], 'r--')
+        #     # Add HPBW text annotation
+        #     plt.annotate(f'HPBW = {hpbw:.2f}°', 
+        #                 xy=((left_cross + right_cross)/2, max_gain-6),
+        #                 xytext=(0, -15),
+        #                 textcoords='offset points',
+        #                 ha='center',
+        #                 color='red',
+        #                 bbox=dict(facecolor='white', edgecolor='none', alpha=0.7))
         
-        # Plot max gain marker and annotation
-        plt.plot(max_gain_angle, max_gain, 'go')
-        plt.annotate(f'Max Gain = {max_gain:.2f} dBi',
-                    xy=(max_gain_angle, max_gain),
-                    xytext=(0, 10),
-                    textcoords='offset points',
-                    ha='center',
-                    color='green',
-                    bbox=dict(facecolor='white', edgecolor='none', alpha=0.7))
+        # # Plot max gain marker and annotation
+        # plt.plot(max_gain_angle, max_gain, 'go')
+        # plt.annotate(f'Max Gain = {max_gain:.2f} dBi',
+        #             xy=(max_gain_angle, max_gain),
+        #             xytext=(0, 10),
+        #             textcoords='offset points',
+        #             ha='center',
+        #             color='green',
+        #             bbox=dict(facecolor='white', edgecolor='none', alpha=0.7))
         
         # Plot sidelobe markers and annotations
-        for angle, gain in sidelobes:
-            plt.plot(angle, gain, 'mo')
-            if angle < 0:
-                text_offset = (-40, 10)
-            else:
-                text_offset = (40, 10)
-            plt.annotate(f'Sidelobe = {gain:.2f} dBi',
-                        xy=(angle, gain),
-                        xytext=text_offset,
-                        textcoords='offset points',
-                        ha='center',
-                        color='magenta',
-                        bbox=dict(facecolor='white', edgecolor='none', alpha=0.7))
+        # for angle, gain in sidelobes:
+        #     plt.plot(angle, gain, 'mo')
+        #     if angle < 0:
+        #         text_offset = (-40, 10)
+        #     else:
+        #         text_offset = (40, 10)
+        #     plt.annotate(f'Sidelobe = {gain:.2f} dBi',
+        #                 xy=(angle, gain),
+        #                 xytext=text_offset,
+        #                 textcoords='offset points',
+        #                 ha='center',
+        #                 color='magenta',
+        #                 bbox=dict(facecolor='white', edgecolor='none', alpha=0.7))
 
         # Plot phase pattern in the bottom subplot
         plt.subplot(2, 1, 2)
@@ -202,9 +207,9 @@ for file_path in file_paths:
         print(f"Error processing {file_path}: {str(e)}")
         continue
 
-# Plot COMSOL simulation data
-plt.subplot(2, 1, 1)
-plt.plot(feko_angles, feko_gains, '--', label='FEKO Simulation', color='gray', alpha=0.7)
+# Plot FEKO simulation data
+# plt.subplot(2, 1, 1)
+# plt.plot(feko_angles, feko_gains, '--', label='FEKO Simulation', color='gray', alpha=0.7)
 
 # Configure top subplot (gain pattern)
 plt.xlim(-8, 8)
