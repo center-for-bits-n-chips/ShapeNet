@@ -54,7 +54,7 @@ def find_sidelobes(angles, gains):
     return sidelobes
 
 # Parameter to specify frequency in GHz
-FREQUENCY_GHZ = 35  # Options: 30, 35, or 40
+FREQUENCY_GHZ = 30  # Options: 30, 35, or 40
 
 wavelength = 299792458 / (FREQUENCY_GHZ * 1e9) # meters
 diameter = 0.5 # meters
@@ -78,19 +78,28 @@ file_paths = [
     #'LL measurements/EAR_DISH_AZ_CUT_12_6_3_2025_042.std', # the best one
     #'LL measurements/EAR_DISH_EL_CUT_13_6_3_2025_044.std',
     #'LL measurements/EAR_DISH_EL_CUT_22_6_3_2025_055.std',
-    'LL measurements/EAR_DISH_AZ_CUT_LONG_23_6_3_2025_056.std',
-    'LL measurements/EAR_DISH_AZ_LONG_CUT_31_6_3_2025_064.std',
+    
+    ## Comparison of shaped and unshaped measurement
+    #'LL measurements/EAR_DISH_AZ_CUT_LONG_23_6_3_2025_056.std', # shaped
+    #'LL measurements/EAR_DISH_AZ_LONG_CUT_31_6_3_2025_064.std', # unshaped
+
+    ## Beam steering comparisons
+    'LL measurements/EAR_DISH_AZ_CUT_LONG_23_6_3_2025_056.std', # shaped
+    'LL measurements/EAR_DISH_AZ_CUT_34_6_3_2025_067.std', # positive shift
+    'LL measurements/EAR_DISH_AZ_CUT_37_6_3_2025_071.std', # negaative shift
+    'LL measurements/EAR_DISH_AZ_CUT_35_6_3_2025_068.std', # extreme positive shift
+    #'LL measurements/EAR_DISH_AZ_CUT_36_6_3_2025_069.std',
+    #'LL measurements/EAR_DISH_AZ_CUT_36_6_3_2025_070.std',
 ]
 
 # Convert target frequency from GHz to MHz
 target_freq_mhz = FREQUENCY_GHZ * 1000
 
 # Create the plot
-plt.figure(figsize=(8, 8))  # Made taller to accommodate both plots
-plt.subplot(2, 1, 1)  # Top subplot for gain
+plt.figure(figsize=(4, 8))  # Made taller to accommodate both plots
 
 # Read FEKO simulation data
-feko_data = np.loadtxt('measured pattern 30 GHz COMSOL f_D 1.3', skiprows=2)
+feko_data = np.loadtxt('measured pattern 30 GHz COMSOL f_D 1.3 case B.dat', skiprows=2)
 feko_angles = feko_data[:, 0]
 feko_gains = feko_data[:, 1]
 
@@ -137,10 +146,15 @@ for file_path in file_paths:
         phase_sorted = phase_vals[sort_idx]
         
         # Apply azimuth offset
-        if file_path == 'LL measurements/EAR_DISH_AZ_LONG_CUT_31_6_3_2025_064.std':
+        if file_path == 'LL measurements/EAR_DISH_AZ_LONG_CUT_31_6_3_2025_064.std' or \
+            file_path == 'LL measurements/EAR_DISH_AZ_CUT_34_6_3_2025_067.std' or \
+            file_path == 'LL measurements/EAR_DISH_AZ_CUT_35_6_3_2025_068.std' or \
+            file_path == 'LL measurements/EAR_DISH_AZ_CUT_36_6_3_2025_069.std' or \
+            file_path == 'LL measurements/EAR_DISH_AZ_CUT_36_6_3_2025_070.std' or \
+            file_path == 'LL measurements/EAR_DISH_AZ_CUT_37_6_3_2025_071.std':
             az_offset = 0.0
         else:
-            az_offset = 0.7
+            az_offset = 0.65
         ang_sorted = ang_sorted + az_offset
         
         # Calculate HPBW
@@ -154,6 +168,7 @@ for file_path in file_paths:
         plt.subplot(2, 1, 1)
         # Plot the gain pattern
         plt.plot(ang_sorted, gain_sorted, label=f'{file_path.split("/")[-1]}')
+        plt.grid(True)
         
         # Plot HPBW markers
         # if hpbw is not None:
@@ -193,32 +208,34 @@ for file_path in file_paths:
         #                 color='magenta',
         #                 bbox=dict(facecolor='white', edgecolor='none', alpha=0.7))
 
+        angle_limit = 3
+
+        # Configure top subplot (gain pattern)
+        plt.xlim(-angle_limit, angle_limit)
+        plt.ylim(-20, 50)
+        plt.xlabel('Azimuth Angle [deg]')
+        plt.ylabel('Gain [dBi]')
+        plt.title(f'{FREQUENCY_GHZ} GHz')
+        plt.grid(True)
+
+
         # Plot phase pattern in the bottom subplot
         plt.subplot(2, 1, 2)
         plt.plot(ang_sorted, phase_sorted)
         plt.grid(True)
         plt.xlabel('Azimuth Angle [deg]')
         plt.ylabel('Phase [deg]')
-        plt.xlim(-8, 8)
-        # Set y-axis limits to show full phase range
-        plt.ylim(-180, 180)
+        plt.xlim(-angle_limit, angle_limit)
+        plt.ylim(-200, 200)
 
     except Exception as e:
         print(f"Error processing {file_path}: {str(e)}")
         continue
 
 # Plot FEKO simulation data
-# plt.subplot(2, 1, 1)
-# plt.plot(feko_angles, feko_gains, '--', label='FEKO Simulation', color='gray', alpha=0.7)
-
-# Configure top subplot (gain pattern)
-plt.xlim(-8, 8)
-plt.ylim(-20, 50)
-plt.xlabel('Azimuth Angle [deg]')
-plt.ylabel('Gain [dBi]')
-plt.title(f'{FREQUENCY_GHZ} GHz')
-plt.grid(True)
-plt.legend()
+plt.subplot(2, 1, 1)
+plt.plot(feko_angles, feko_gains, '--', label='FEKO Simulation', color='gray', alpha=0.7)
+#plt.legend()
 
 plt.tight_layout()
 plt.show()
