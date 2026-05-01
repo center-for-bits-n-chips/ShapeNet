@@ -183,16 +183,17 @@ def plot_marker_locations(positions, time, frame_index=None):
         frame_index = 0  # Default to first frame
     
     plt.figure(figsize=(10, 6))
-    plt.polar(theta[frame_index], r[frame_index], 'o')
+    plt.polar(theta[frame_index], r[frame_index], 'o', color='black')
     
     # Add text labels for each marker
-    for i in range(len(r[frame_index])):
-        plt.text(theta[frame_index][i], r[frame_index][i], f'M{i}', 
-                ha='center', va='bottom')
+    # for i in range(len(r[frame_index])):
+    #     plt.text(theta[frame_index][i], r[frame_index][i], f'M{i}', 
+    #             ha='center', va='bottom')
     
     plt.title(f'Marker Locations at t = {time[frame_index]:.2f} s')
     plt.ylim(0, 250)
     plt.grid(True)
+    plt.rgrids(np.arange(0, 251, 75))  # Set radial ticks every 25 units from 0 to 250
 
 def animate_profile(positions, time, z_scale=5.0, interval=50, save_path='profile_animation.mp4'):
     """
@@ -265,20 +266,24 @@ def animate_profile(positions, time, z_scale=5.0, interval=50, save_path='profil
     
     print(f"Profile animation saved to {save_path}")
 
-def plot_multiple_profiles(positions, time, frame_indices, z_scale=5.0):
+def plot_multiple_profiles(positions, time, frame_indices, z_scale=1.0, fig=None, ax=None, label_prefix='', color='black'):
     """
-    Plot multiple profiles on the same figure.
+    Plot multiple profiles on a figure, allowing multiple calls to overlay plots.
     
     Args:
         positions: 3D array of shape (num_records, num_markers, 3)
         time: Time array
         frame_indices: List of frame indices to plot
         z_scale: Scale factor for z-displacement visualization
+        fig: Optional existing figure to plot on
+        ax: Optional existing axes to plot on
+        label_prefix: Optional prefix for legend labels
     """
     r, theta, z = cartesian_to_cylindrical(positions)
     z_scaled = z * z_scale
     
-    plt.figure(figsize=(10, 6))
+    if fig is None or ax is None:
+        fig, ax = plt.subplots(figsize=(7, 6))
     
     # Plot each profile
     for i, frame_idx in enumerate(frame_indices):
@@ -291,13 +296,19 @@ def plot_multiple_profiles(positions, time, frame_indices, z_scale=5.0):
         unique_r, unique_idx = np.unique(r_sorted, return_index=True)
         unique_z = np.array([np.mean(z_sorted[r_sorted == r_val]) for r_val in unique_r])
         
-        plt.plot(unique_r, unique_z, '.-', label=f't = {time[frame_idx]:.2f} s')
+        #label = f'{label_prefix}t = {time[frame_idx]:.2f} s' if label_prefix else f't = {time[frame_idx]:.2f} s'
+        label = label_prefix
+        ax.plot(unique_r, unique_z, 'o', label=label, color=color)
     
-    plt.title('Profile Comparison')
-    plt.xlabel('Radial Distance [mm]')
-    plt.ylabel(f'Z Position [mm] (scaled {z_scale}x)')
-    plt.legend()
-    plt.grid(True)
+    ax.set_title('Profile Comparison')
+    ax.set_xlabel('Radial Distance [mm]')
+    ax.set_ylabel(f'Mesh Displacement [mm]')
+    ax.legend()
+    ax.grid(True)
+    plt.xlim(0, 250)
+    plt.ylim(0, 35)
+    
+    return fig, ax
 
 def read_comsol_data(filename, set_index=0):
     """
@@ -358,35 +369,57 @@ def fit_voltage_polynomial(displacement, voltage, degree=4):
     return poly, coeffs
 
 def main():
-    print("\nReading data file...")
-    num_markers = 15
+    print("\nReading data files...")
+    num_markers = 14
     num_voltages = 11
     
-    filename = "data/2025-05-27 case B.dat"
-    voltages, positions, time = read_labview_binary(filename, num_markers=num_markers, num_voltages=num_voltages, decimate=100)
+    # Read first file
+    filename1 = "Lincoln Labs data/2025-06-06 DIC measurement final case B.dat"
+    voltages1, positions1, time1 = read_labview_binary(filename1, num_markers=num_markers, num_voltages=num_voltages, decimate=1)
+    
+    # Read second file
+    filename2 = "Lincoln Labs data/2025-06-06 DIC measurement final case A.dat"
+    voltages2, positions2, time2 = read_labview_binary(filename2, num_markers=num_markers, num_voltages=num_voltages, decimate=1)
+    
     print("\nGenerating plots...")
 
     # Plot marker locations at different frames
-    plot_marker_locations(positions, time)
+    plot_marker_locations(positions1, time1)
     plt.show()
             
     # Create time series plot
     plt.figure(figsize=(10, 6))
     
-    # Plot voltages
+    # Plot voltages for first file
     colors_voltage = plt.cm.Greys(np.linspace(1.0, 0.2, num_voltages))  # Different greys for each voltage, darkest first
     for i in range(num_voltages):
-        plt.plot(time, voltages[:, i],
-                label=f'Voltage {i}',
+        plt.plot(time1, voltages1[:, i],
+                label=f'File 1 - Voltage {i}',
                 color=colors_voltage[i],
                 marker='.')
     
-    # Plot each marker's z position
+    # Plot each marker's z position for first file
     colors = plt.cm.rainbow(np.linspace(0, 1, num_markers))  # Different color for each marker
     for i in range(num_markers):
-        plt.plot(time, positions[:, i, 2],
-                label=f'Marker {i} z',
+        plt.plot(time1, positions1[:, i, 2],
+                label=f'File 1 - Marker {i} z',
                 color=colors[i], 
+                marker='.')
+    
+    # Plot voltages for second file with dashed lines
+    for i in range(num_voltages):
+        plt.plot(time2, voltages2[:, i],
+                label=f'File 2 - Voltage {i}',
+                color=colors_voltage[i],
+                linestyle='--',
+                marker='.')
+    
+    # Plot each marker's z position for second file with dashed lines
+    for i in range(num_markers):
+        plt.plot(time2, positions2[:, i, 2],
+                label=f'File 2 - Marker {i} z',
+                color=colors[i],
+                linestyle='--',
                 marker='.')
 
     plt.title('Motion Capture and Voltage Data vs Time')
@@ -398,33 +431,55 @@ def main():
     plt.show()
     
     # Create voltage vs position plot
-    end_index = 228882
+    start_index_1 = 0
+    end_index_1 = 38550
+    start_index_2 = 16500
+    end_index_2 = 53200
     plt.figure(figsize=(10, 6))
     
-    mesh_voltage = voltages[:end_index, 0] - voltages[:end_index, 1]
-
-    # Plot experimental data
+    # Plot data from first file
+    mesh_voltage1 = voltages1[start_index_1:end_index_1, 0] - voltages1[start_index_1:end_index_1, 1]
     for i in [7]:
-        plt.plot(mesh_voltage, positions[:end_index, i, 2],
-                label=f'Marker {i} z',
-                color=colors[i], 
-                marker='.')
+        plt.plot(mesh_voltage1, positions1[start_index_1:end_index_1, i, 2],
+                #label=f'File 1 - Marker {i} z',
+                label='Corrected',
+                color='green')
     
-    # Fit polynomial to experimental data
-    voltage_poly, coeffs = fit_voltage_polynomial(positions[:end_index, 7, 2], mesh_voltage, degree=3)
+    # Plot data from second file
+    mesh_voltage2 = voltages2[start_index_2:end_index_2, 0] - voltages2[start_index_2:end_index_2, 1]
+    for i in [7]:
+        plt.plot(mesh_voltage2, positions2[start_index_2:end_index_2, i, 2],
+                #label=f'File 2 - Marker {i} z',
+                label='Uncorrected',
+                color='red')
+    
+    # Read and plot COMSOL pull-in curves
+    comsol_filename = "comsol/pull in 50-cm diameter 35-mm gap 0.5 N_per_m case A and B.txt"
+    comsol_data = np.loadtxt(comsol_filename, skiprows=8)
+    
+    # First pull-in curve (Case B)
+    voltage_b = comsol_data[:51, 1]  # kV
+    displacement_b = comsol_data[:51, 0]  # mm
+    plt.plot(voltage_b, displacement_b, '--', color='green', label='COMSOL Corrected')
+    
+    # Second pull-in curve (Case A)
+    voltage_a = comsol_data[51:, 1]  # kV
+    displacement_a = comsol_data[51:, 0]  # mm
+    plt.plot(voltage_a, displacement_a, '--', color='red', label='COMSOL Uncorrected')
+    
+    # Fit polynomial to experimental data from first file
+    voltage_poly, coeffs = fit_voltage_polynomial(positions1[start_index_1:end_index_1, 7, 2], mesh_voltage1, degree=3)
     
     # Test the polynomial with some example positions
-    test_positions = np.linspace(positions[:end_index, 7, 2].min(), 35, 100)
+    test_positions = np.linspace(positions1[start_index_1:end_index_1, 7, 2].min(), 35, 100)
     predicted_voltages = voltage_poly(test_positions)
     
-    # Plot the polynomial fit
-    plt.plot(predicted_voltages, test_positions, 'r:', label='Polynomial Fit', linewidth=1)
-    
-    plt.title('Z Position vs Voltage')
+    plt.title('Pull-In Curve')
     plt.xlabel('Voltage [kV]')
-    plt.ylabel('Z Position [mm]')
-    plt.xlim(0, max(voltages[:, 0]) * 1.1)
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.ylabel('Mesh Displacement [mm]')
+    plt.xlim(0, 20)
+    plt.ylim(0, 35)
+    plt.legend(bbox_to_anchor=(0.8, 1), loc='upper left')
     plt.grid(True)
 
     plt.show()
@@ -435,14 +490,37 @@ def main():
         print(f"x^{i+1}: {coef:.6f}")
     
     print("\nExample voltage predictions from position:")
-    test_positions = np.linspace(positions[:end_index, 4, 2].min(), positions[:end_index, 4, 2].max(), 8)
+    test_positions = np.linspace(positions1[start_index_1:end_index_1, 4, 2].min(), positions1[start_index_1:end_index_1, 4, 2].max(), 8)
     for pos in test_positions:
         voltage = voltage_poly(pos)
         print(f"Position: {pos:.1f} mm -> Voltage: {voltage:.2f} kV")
     
     # Plot multiple profiles
-    # plot_multiple_profiles(positions, time, frame_indices=[300, 400, 500], z_scale=1.0)
-    # plt.show()
+    fig, ax = plot_multiple_profiles(positions1, time1, frame_indices=[end_index_1], z_scale=1.0, label_prefix='Corrected', color='green')
+    fig, ax = plot_multiple_profiles(positions2, time2, frame_indices=[end_index_2], z_scale=1.0, fig=fig, ax=ax, label_prefix='Uncorrected', color='red')
+    
+    # Add parabola
+    r = np.linspace(0, 1, 100)  # Match x-axis limits
+    nadir_depth = 24  # Scale to match y-axis max of 35
+    y = -nadir_depth * (r**2 - 1)  # Parabola equation, shifted up to match y max
+    ax.plot(250*r, y, '-', color='black', linewidth=2, label='f/D = 1.3 (24 mm)')
+    
+    # Read and plot COMSOL profiles
+    comsol_filename = "comsol/profile 50-cm diameter 35-mm gap 1.7 N_per_m case A and B 24-mm depth.txt"
+    comsol_data = np.loadtxt(comsol_filename, skiprows=8)
+    
+    # First profile (Case B)
+    r_b = comsol_data[:347, 0] * 1e3  # Convert to mm
+    z_b = -comsol_data[:347, 1]  # Convert to mm
+    ax.plot(r_b, z_b, '--', color='red', label='COMSOL Uncorrected')
+    
+    # Second profile (Case A)
+    r_a = comsol_data[348:, 0] * 1e3  # Convert to mm
+    z_a = -comsol_data[348:, 1]  # Convert to mm
+    ax.plot(r_a, z_a, '--', color='green', label='COMSOL Corrected')
+    
+    plt.legend(bbox_to_anchor=(0.6, 1), loc='upper left')
+    plt.show()
 
     # Create and save 3D animation with scaled z-displacement
     #animate_markers(positions, z_scale=5.0, save_path='marker_animation.mp4')
