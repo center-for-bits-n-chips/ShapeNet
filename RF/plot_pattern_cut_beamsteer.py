@@ -76,31 +76,29 @@ file_paths = [
     #'LL measurements/EAR_DISH_AZ_CUT_9_6_3_2025_039.std',
     #'LL measurements/EAR_DISH_AZ_CUT_10_6_3_2025_040.std',
     #'LL measurements/EAR_DISH_AZ_CUT_11_6_3_2025_041.std',
-    # 'LL measurements/EAR_DISH_AZ_CUT_12_6_3_2025_042.std',
+    #'LL measurements/EAR_DISH_AZ_CUT_12_6_3_2025_042.std', # the best one
     #'LL measurements/EAR_DISH_EL_CUT_13_6_3_2025_044.std',
     #'LL measurements/EAR_DISH_EL_CUT_22_6_3_2025_055.std',
 
-    ### THE BEST MEASUREMENTS
     ## Comparison of shaped and unshaped measurement
-    'LL measurements/EAR_DISH_AZ_CUT_LONG_23_6_3_2025_056.std', # shaped
-    'LL measurements/EAR_DISH_AZ_LONG_CUT_31_6_3_2025_064.std', # unshaped
+    #'LL measurements/EAR_DISH_AZ_CUT_LONG_23_6_3_2025_056.std', # shaped
+    #'LL measurements/EAR_DISH_AZ_LONG_CUT_31_6_3_2025_064.std', # unshaped
 
     ## Beam steering comparisons
-    #'LL measurements/EAR_DISH_AZ_CUT_LONG_23_6_3_2025_056.std', # shaped
-    #'LL measurements/EAR_DISH_AZ_CUT_34_6_3_2025_067.std', # positive shift
-    #'LL measurements/EAR_DISH_AZ_CUT_37_6_3_2025_071.std', # negaative shift
+    'LL measurements/EAR_DISH_AZ_CUT_LONG_23_6_3_2025_056.std', # shaped
+    'LL measurements/EAR_DISH_AZ_CUT_34_6_3_2025_067.std', # positive shift
+    'LL measurements/EAR_DISH_AZ_CUT_37_6_3_2025_071.std', # negaative shift
     # 'LL measurements/EAR_DISH_AZ_CUT_35_6_3_2025_068.std', # extreme positive shift
     #'LL measurements/EAR_DISH_AZ_CUT_36_6_3_2025_069.std',
     #'LL measurements/EAR_DISH_AZ_CUT_36_6_3_2025_070.std',
 ]
 
-# Per-file plot styles: color, alpha, and legend label
+# Per-file plot styles: color and alpha
 file_styles = {
-    'LL measurements/EAR_DISH_AZ_CUT_LONG_23_6_3_2025_056.std': {'color': 'black',   'alpha': 1.0,  'label': 'Shaped'},
-    'LL measurements/EAR_DISH_AZ_LONG_CUT_31_6_3_2025_064.std': {'color': 'black',   'alpha': 0.45, 'label': 'Unshaped'},
-    'LL measurements/EAR_DISH_AZ_CUT_34_6_3_2025_067.std':      {'color': '#1f77b4', 'alpha': 0.45, 'label': None},  # positive shift - blue
-    'LL measurements/EAR_DISH_AZ_CUT_37_6_3_2025_071.std':      {'color': '#d62728', 'alpha': 0.45, 'label': None},  # negative shift - red
-    'LL measurements/EAR_DISH_AZ_CUT_35_6_3_2025_068.std':      {'color': '#2ca02c', 'alpha': 0.45, 'label': None},  # extreme positive - green
+    'LL measurements/EAR_DISH_AZ_CUT_LONG_23_6_3_2025_056.std': {'color': 'black',   'alpha': 1.0},
+    'LL measurements/EAR_DISH_AZ_CUT_34_6_3_2025_067.std':      {'color': '#1f77b4', 'alpha': 0.45},  # positive shift - blue
+    'LL measurements/EAR_DISH_AZ_CUT_37_6_3_2025_071.std':      {'color': '#d62728', 'alpha': 0.45},  # negative shift - red
+    'LL measurements/EAR_DISH_AZ_CUT_35_6_3_2025_068.std':      {'color': '#2ca02c', 'alpha': 0.45},  # extreme positive - green
 }
 
 # Convert target frequency from GHz to MHz
@@ -181,14 +179,13 @@ for file_path in file_paths:
         max_gain_angle = ang_sorted[np.argmax(gain_sorted)]
         sidelobes = find_sidelobes(ang_sorted, gain_sorted)
         
-        style = file_styles.get(file_path, {'color': None, 'alpha': 1.0, 'label': None})
+        style = file_styles.get(file_path, {'color': None, 'alpha': 1.0})
 
         # Plot the gain pattern
         ax1.plot(ang_sorted, gain_sorted,
-                 color=style['color'], alpha=style['alpha'],
-                 label=style.get('label'))
+                 color=style['color'], alpha=style['alpha'])
 
-        angle_limit = 8
+        angle_limit = 3
 
         # Configure top subplot (gain pattern)
         ax1.set_xlim(-angle_limit, angle_limit)
@@ -208,14 +205,11 @@ for file_path in file_paths:
         continue
 
 # Plot FEKO simulation data on top subplot
-ax1.plot(feko_angles, feko_gains, '--', color='gray', alpha=0.7, label='FEKO Sim')
+ax1.plot(feko_angles, feko_gains, '--', color='gray', alpha=0.7)
 
 # Frequency label in top-left corner of top subplot
 ax1.text(0.03, 0.97, f'{FREQUENCY_GHZ} GHz',
          transform=ax1.transAxes, va='top', ha='left', fontsize=9)
-
-# Legend in top-right of gain subplot, no bounding box
-ax1.legend(loc='upper right', frameon=False)
 
 # Remove whitespace at the top of the figure
 fig.subplots_adjust(top=0.99)
@@ -223,7 +217,7 @@ fig.subplots_adjust(top=0.99)
 # Save figure as a PDF in a dedicated subfolder
 output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'radiation pattern figures')
 os.makedirs(output_dir, exist_ok=True)
-output_path = os.path.join(output_dir, f'ka_{FREQUENCY_GHZ}_GHz.pdf')
+output_path = os.path.join(output_dir, f'ka_{FREQUENCY_GHZ}_GHz_beamsteer.pdf')
 fig.savefig(output_path, bbox_inches='tight', pad_inches=0.02)
 print(f"Saved figure to {output_path}")
 

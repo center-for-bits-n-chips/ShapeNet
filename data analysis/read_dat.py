@@ -184,16 +184,23 @@ def plot_marker_locations(positions, time, frame_index=None):
     
     plt.figure(figsize=(10, 6))
     plt.polar(theta[frame_index], r[frame_index], 'o', color='black')
-    
+    ax = plt.gca()
+
+    # Mark the mesh center (0,0) with a red +
+    ax.plot(0, 0, '+', color='red', markersize=12, mew=2)
+
     # Add text labels for each marker
     # for i in range(len(r[frame_index])):
     #     plt.text(theta[frame_index][i], r[frame_index][i], f'M{i}', 
     #             ha='center', va='bottom')
     
-    plt.title(f'Marker Locations at t = {time[frame_index]:.2f} s')
-    plt.ylim(0, 250)
-    plt.grid(True)
-    plt.rgrids(np.arange(0, 251, 75))  # Set radial ticks every 25 units from 0 to 250
+    #plt.title(f'Marker Locations at t = {time[frame_index]:.2f} s')
+    ax.set_ylim(0, 250)
+    ax.grid(True)
+    # Radial gridlines/ticks; label the outermost ring with the units
+    ax.set_rgrids([50, 100, 150, 200, 250], labels=['', '', '', '', '250 cm'])
+    # Remove angular tick labels
+    ax.set_xticklabels([])
 
 def animate_profile(positions, time, z_scale=5.0, interval=50, save_path='profile_animation.mp4'):
     """
@@ -266,7 +273,7 @@ def animate_profile(positions, time, z_scale=5.0, interval=50, save_path='profil
     
     print(f"Profile animation saved to {save_path}")
 
-def plot_multiple_profiles(positions, time, frame_indices, z_scale=1.0, fig=None, ax=None, label_prefix='', color='black'):
+def plot_multiple_profiles(positions, time, frame_indices, z_scale=1.0, fig=None, ax=None, label_prefix='', color='black', alpha=1.0):
     """
     Plot multiple profiles on a figure, allowing multiple calls to overlay plots.
     
@@ -298,13 +305,13 @@ def plot_multiple_profiles(positions, time, frame_indices, z_scale=1.0, fig=None
         
         #label = f'{label_prefix}t = {time[frame_idx]:.2f} s' if label_prefix else f't = {time[frame_idx]:.2f} s'
         label = label_prefix
-        ax.plot(unique_r, unique_z, 'o', label=label, color=color)
+        ax.plot(unique_r, unique_z, 'o', label=label, color=color, alpha=alpha)
     
-    ax.set_title('Profile Comparison')
-    ax.set_xlabel('Radial Distance [mm]')
+    #ax.set_title('Profile Comparison')
+    ax.set_xlabel('Radial Position [mm]')
     ax.set_ylabel(f'Mesh Displacement [mm]')
-    ax.legend()
-    ax.grid(True)
+    ax.legend(frameon=False)
+    ax.tick_params(which='both', direction='in', top=True, right=True, bottom=True, left=True)
     plt.xlim(0, 250)
     plt.ylim(0, 35)
     
@@ -496,30 +503,32 @@ def main():
         print(f"Position: {pos:.1f} mm -> Voltage: {voltage:.2f} kV")
     
     # Plot multiple profiles
-    fig, ax = plot_multiple_profiles(positions1, time1, frame_indices=[end_index_1], z_scale=1.0, label_prefix='Corrected', color='green')
-    fig, ax = plot_multiple_profiles(positions2, time2, frame_indices=[end_index_2], z_scale=1.0, fig=fig, ax=ax, label_prefix='Uncorrected', color='red')
+    fig, ax = plot_multiple_profiles(positions1, time1, frame_indices=[end_index_1], z_scale=1.0, label_prefix='Markers Shaped', color='black', alpha=1.0)
+    fig, ax = plot_multiple_profiles(positions2, time2, frame_indices=[end_index_2], z_scale=1.0, fig=fig, ax=ax, label_prefix='Markers Unshaped', color='black', alpha=0.45)
     
     # Add parabola
     r = np.linspace(0, 1, 100)  # Match x-axis limits
     nadir_depth = 24  # Scale to match y-axis max of 35
     y = -nadir_depth * (r**2 - 1)  # Parabola equation, shifted up to match y max
-    ax.plot(250*r, y, '-', color='black', linewidth=2, label='f/D = 1.3 (24 mm)')
+    ax.plot(250*r, y, '-', color='black', linewidth=1, label='f/D = 1.3 (24 mm)', zorder=0)
     
     # Read and plot COMSOL profiles
     comsol_filename = "comsol/profile 50-cm diameter 35-mm gap 1.7 N_per_m case A and B 24-mm depth.txt"
     comsol_data = np.loadtxt(comsol_filename, skiprows=8)
     
     # First profile (Case B)
-    r_b = comsol_data[:347, 0] * 1e3  # Convert to mm
-    z_b = -comsol_data[:347, 1]  # Convert to mm
-    ax.plot(r_b, z_b, '--', color='red', label='COMSOL Uncorrected')
+    r_b = comsol_data[0:347, 0] * 1e3  # Convert to mm
+    z_b = -comsol_data[0:347, 1]  # Convert to mm
+    mask_b = r_b >= 0
+    ax.plot(r_b[mask_b], z_b[mask_b], '--', color='black', alpha=0.45, label='COMSOL Unshaped')
     
     # Second profile (Case A)
     r_a = comsol_data[348:, 0] * 1e3  # Convert to mm
     z_a = -comsol_data[348:, 1]  # Convert to mm
-    ax.plot(r_a, z_a, '--', color='green', label='COMSOL Corrected')
+    mask_a = r_a >= 0
+    ax.plot(r_a[mask_a], z_a[mask_a], '--', color='black', alpha=1.0, label='COMSOL Shaped')
     
-    plt.legend(bbox_to_anchor=(0.6, 1), loc='upper left')
+    plt.legend(bbox_to_anchor=(0.6, 1), loc='upper left', frameon=False)
     plt.show()
 
     # Create and save 3D animation with scaled z-displacement

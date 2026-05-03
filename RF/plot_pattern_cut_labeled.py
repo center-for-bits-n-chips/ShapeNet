@@ -83,7 +83,7 @@ file_paths = [
     ### THE BEST MEASUREMENTS
     ## Comparison of shaped and unshaped measurement
     'LL measurements/EAR_DISH_AZ_CUT_LONG_23_6_3_2025_056.std', # shaped
-    'LL measurements/EAR_DISH_AZ_LONG_CUT_31_6_3_2025_064.std', # unshaped
+    #'LL measurements/EAR_DISH_AZ_LONG_CUT_31_6_3_2025_064.std', # unshaped
 
     ## Beam steering comparisons
     #'LL measurements/EAR_DISH_AZ_CUT_LONG_23_6_3_2025_056.std', # shaped
@@ -107,7 +107,7 @@ file_styles = {
 target_freq_mhz = FREQUENCY_GHZ * 1000
 
 # Create the plot
-fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(5, 6))
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6))
 fig.subplots_adjust(hspace=0.15)
 
 # Apply common tick style to both axes
@@ -188,6 +188,43 @@ for file_path in file_paths:
                  color=style['color'], alpha=style['alpha'],
                  label=style.get('label'))
 
+        # Annotate peak gain, HPBW, and worst sidelobe for labeled curves
+        if style.get('label') is not None:
+            color = style['color']
+            alpha = style['alpha']
+
+            # Peak gain marker + label
+            ax1.plot(max_gain_angle, max_gain, 'o', color=color, alpha=alpha,
+                     markersize=4)
+            ax1.annotate(f"G = {max_gain:.1f} dBi",
+                         xy=(max_gain_angle, max_gain),
+                         xytext=(6, 2), textcoords='offset points',
+                         fontsize=7, color=color, alpha=alpha,
+                         ha='left', va='bottom')
+
+            # HPBW horizontal indicator at half-power level + label
+            if hpbw is not None:
+                half_power = max_gain - 3
+                ax1.plot([left_cross, right_cross], [half_power, half_power],
+                         '--', color=color, alpha=alpha * 0.7, linewidth=1.0)
+                ax1.annotate(f"HPBW = {hpbw:.2f}\u00b0",
+                             xy=(right_cross, half_power),
+                             xytext=(6, -2), textcoords='offset points',
+                             fontsize=7, color=color, alpha=alpha,
+                             ha='left', va='top')
+
+            # Worst (highest) sidelobe marker + label
+            if sidelobes:
+                worst_sl_angle, worst_sl_gain = max(sidelobes, key=lambda x: x[1])
+                sll_db = worst_sl_gain - max_gain
+                ax1.plot(worst_sl_angle, worst_sl_gain, 'o', color=color, alpha=alpha,
+                         markersize=4)
+                ax1.annotate(f"SLL = {sll_db:.1f} dB",
+                             xy=(worst_sl_angle, worst_sl_gain),
+                             xytext=(6, 2), textcoords='offset points',
+                             fontsize=7, color=color, alpha=alpha,
+                             ha='left', va='bottom')
+
         angle_limit = 8
 
         # Configure top subplot (gain pattern)
@@ -208,7 +245,7 @@ for file_path in file_paths:
         continue
 
 # Plot FEKO simulation data on top subplot
-ax1.plot(feko_angles, feko_gains, '--', color='gray', alpha=0.7, label='FEKO Sim')
+#ax1.plot(feko_angles, feko_gains, '--', color='gray', alpha=0.7, label='FEKO Sim')
 
 # Frequency label in top-left corner of top subplot
 ax1.text(0.03, 0.97, f'{FREQUENCY_GHZ} GHz',
@@ -223,7 +260,7 @@ fig.subplots_adjust(top=0.99)
 # Save figure as a PDF in a dedicated subfolder
 output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'radiation pattern figures')
 os.makedirs(output_dir, exist_ok=True)
-output_path = os.path.join(output_dir, f'ka_{FREQUENCY_GHZ}_GHz.pdf')
+output_path = os.path.join(output_dir, f'ka_{FREQUENCY_GHZ}_GHz_labeled.pdf')
 fig.savefig(output_path, bbox_inches='tight', pad_inches=0.02)
 print(f"Saved figure to {output_path}")
 
